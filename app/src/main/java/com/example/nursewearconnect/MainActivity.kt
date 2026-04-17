@@ -58,7 +58,7 @@ fun NurseWearConnectApp() {
     ) {
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
             Greeting(
-                name = "Android",
+                name = "Dev",
                 modifier = Modifier.padding(innerPadding)
             )
         }
