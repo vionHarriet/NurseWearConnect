@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -31,16 +32,20 @@ import com.example.nursewearconnect.model.MOCK_PRODUCTS
 import com.example.nursewearconnect.model.Product
 import com.example.nursewearconnect.ui.theme.*
 
-@Composable
-fun HomeScreen(innerPadding: PaddingValues) {
-    var activeCat by remember { mutableStateOf("All") }
-    var search by remember { mutableStateOf("") }
-    val categories = listOf("All", "Scrubs", "Jackets", "Shoes", "Accessories")
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.nursewearconnect.ui.viewmodel.HomeViewModel
+import com.example.nursewearconnect.ui.viewmodel.HomeUiState
 
-    val filteredProducts = MOCK_PRODUCTS.filter {
-        (activeCat == "All" || it.category.contains(activeCat, ignoreCase = true)) &&
-        (search.isEmpty() || it.name.contains(search, ignoreCase = true))
-    }
+@Composable
+fun HomeScreen(
+    innerPadding: PaddingValues, 
+    userRole: String = "student",
+    onNavigateToNotifications: () -> Unit = {},
+    onNavigateToMessages: () -> Unit = {},
+    onNavigateToProfile: () -> Unit = {},
+    viewModel: HomeViewModel = viewModel()
+) {
+    val uiState by viewModel.uiState.collectAsState()
 
     Box(
         modifier = Modifier
@@ -65,23 +70,89 @@ fun HomeScreen(innerPadding: PaddingValues) {
                 .padding(bottom = innerPadding.calculateBottomPadding())
                 .verticalScroll(rememberScrollState())
         ) {
-            HomeHeader()
-            SearchBar(search) { search = it }
-            CategorySelector(categories, activeCat) { activeCat = it }
-            HeroBanner()
-            QuickActions()
+            HomeHeader(
+                userRole = userRole,
+                userName = uiState.userName,
+                greeting = uiState.greeting,
+                unreadNotificationsCount = uiState.unreadNotificationsCount,
+                unreadMessagesCount = 2, // Example static for now
+                onNotificationsClick = onNavigateToNotifications,
+                onMessagesClick = onNavigateToMessages,
+                onProfileClick = onNavigateToProfile
+            )
             
-            SectionHeader("Recommended for You", "Based on your sizing profile")
+            SearchBar(uiState.searchQuery) { viewModel.onSearchQueryChanged(it) }
             
-            ProductGrid(filteredProducts)
+            CategorySelector(
+                categories = uiState.categories, 
+                activeCat = uiState.activeCategory
+            ) { viewModel.onCategorySelected(it) }
+            
+            if (userRole == "vendor") {
+                VendorStats()
+            } else {
+                HeroBanner()
+            }
+            
+            QuickActions(userRole)
+            
+            SectionHeader(
+                if (userRole == "vendor") "Your Recent Orders" else "Recommended for You",
+                if (userRole == "vendor") "Track your sales performance" else "Based on your sizing profile"
+            )
+            
+            ProductGrid(
+                products = uiState.recommendations,
+                onFavoriteToggle = { viewModel.toggleFavorite(it.id) },
+                onAddToCart = { viewModel.addToCart(it) }
+            )
             
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }
 
+
 @Composable
-fun HomeHeader() {
+fun VendorStats() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        StatCard("Total Sales", "KSh 12,450", Brand600, modifier = Modifier.weight(1f))
+        StatCard("Active Orders", "8", Color(0xFF3B82F6), modifier = Modifier.weight(1f))
+    }
+}
+
+@Composable
+fun StatCard(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(24.dp),
+        color = Color.White,
+        border = BorderStroke(1.dp, Slate100),
+        shadowElevation = 2.dp
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(label, fontSize = 12.sp, color = Slate500)
+            Text(value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = color)
+        }
+    }
+}
+
+@Composable
+fun HomeHeader(
+    userRole: String,
+    userName: String = "",
+    greeting: String = "Good Morning",
+    unreadNotificationsCount: Int = 0,
+    unreadMessagesCount: Int = 0,
+    onNotificationsClick: () -> Unit = {},
+    onMessagesClick: () -> Unit = {},
+    onProfileClick: () -> Unit = {}
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -89,49 +160,121 @@ fun HomeHeader() {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onProfileClick
+                ),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Surface(
-                modifier = Modifier.size(40.dp),
+                modifier = Modifier.size(44.dp),
                 shape = CircleShape,
-                color = Brand100
+                color = if (userRole == "vendor") Color(0xFFDBEAFE) else Brand100,
+                border = BorderStroke(2.dp, Color.White),
+                shadowElevation = 2.dp
             ) {
-                // Placeholder for profile image
-                Text("👩‍⚕️", modifier = Modifier.wrapContentSize(), fontSize = 20.sp)
+                Box(contentAlignment = Alignment.Center) {
+                    Text(if (userRole == "vendor") "🏪" else "👩‍⚕️", fontSize = 22.sp)
+                }
             }
             Spacer(Modifier.width(12.dp))
             Column {
-                Text("Good Morning,", fontSize = 12.sp, color = Slate500, fontWeight = FontWeight.Medium)
-                Text("Dr. Sarah Jenkins", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Slate900)
+                Text(
+                    text = greeting,
+                    fontSize = 12.sp,
+                    color = Slate500,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 0.5.sp
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = userName.ifEmpty { if (userRole == "vendor") "Elite Scrubs Vendor" else "Dr. Sarah Jenkins" },
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Slate900,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Icon(
+                        Icons.Default.KeyboardArrowDown,
+                        contentDescription = null,
+                        tint = Slate400,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
             }
         }
         
-        Box {
-            IconButton(
-                onClick = { /* TODO */ },
-                modifier = Modifier
-                    .size(40.dp)
-                    .background(Color.White.copy(alpha = 0.8f), CircleShape)
-                    .border(1.dp, Slate100, CircleShape)
-            ) {
-                Icon(
-                    Icons.Outlined.Notifications,
-                    contentDescription = "Notifications",
-                    tint = Slate400,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-            // Red dot indicator
-            Box(
-                modifier = Modifier
-                    .size(10.dp)
-                    .background(Brand500, CircleShape)
-                    .border(2.dp, Color.White, CircleShape)
-                    .align(Alignment.TopEnd)
-                    .offset(x = (-2).dp, y = 2.dp)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Messages Icon
+            HeaderIconButton(
+                icon = Icons.Default.ChatBubbleOutline,
+                badgeCount = unreadMessagesCount,
+                onClick = onMessagesClick
+            )
+
+            // Notifications Icon
+            HeaderIconButton(
+                icon = Icons.Outlined.Notifications,
+                badgeCount = unreadNotificationsCount,
+                onClick = onNotificationsClick
             )
         }
     }
 }
+
+@Composable
+fun HeaderIconButton(
+    icon: ImageVector,
+    badgeCount: Int,
+    onClick: () -> Unit
+) {
+    Box {
+        IconButton(
+            onClick = onClick,
+            modifier = Modifier
+                .size(40.dp)
+                .background(Color.White.copy(alpha = 0.8f), CircleShape)
+                .border(1.dp, Slate100, CircleShape)
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = Slate400,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+        
+        if (badgeCount > 0) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = 2.dp, y = (-2).dp)
+                    .size(18.dp),
+                shape = CircleShape,
+                color = Brand500,
+                border = BorderStroke(2.dp, Color.White)
+            ) {
+                Text(
+                    text = if (badgeCount > 9) "9+" else badgeCount.toString(),
+                    color = Color.White,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.wrapContentSize()
+                )
+            }
+        }
+    }
+}
+
+
 
 @Composable
 fun SearchBar(text: String, onValueChange: (String) -> Unit) {
@@ -258,13 +401,18 @@ fun HeroBanner() {
 }
 
 @Composable
-fun QuickActions() {
+fun QuickActions(userRole: String) {
     Row(
         modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        QuickActionCard("Quick Reorder", Icons.AutoMirrored.Filled.RotateLeft, Brand50, Brand600, modifier = Modifier.weight(1f))
-        QuickActionCard("Favorites", Icons.Default.Favorite, Color(0xFFFFF1F2), Color(0xFFF43F5E), modifier = Modifier.weight(1f))
+        if (userRole == "vendor") {
+            QuickActionCard("Inventory", Icons.Default.Inventory2, Brand50, Brand600, modifier = Modifier.weight(1f))
+            QuickActionCard("Analytics", Icons.Default.BarChart, Color(0xFFF0F9FF), Color(0xFF0EA5E9), modifier = Modifier.weight(1f))
+        } else {
+            QuickActionCard("Quick Reorder", Icons.AutoMirrored.Filled.RotateLeft, Brand50, Brand600, modifier = Modifier.weight(1f))
+            QuickActionCard("Favorites", Icons.Default.Favorite, Color(0xFFFFF1F2), Color(0xFFF43F5E), modifier = Modifier.weight(1f))
+        }
     }
 }
 
@@ -313,22 +461,43 @@ fun SectionHeader(title: String, subtitle: String) {
 }
 
 @Composable
-fun ProductGrid(products: List<Product>) {
-    val chunks = products.chunked(2)
-    Column(
-        modifier = Modifier.padding(horizontal = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+fun ProductGrid(
+    products: List<Product>,
+    onFavoriteToggle: (Product) -> Unit = {},
+    onAddToCart: (Product) -> Unit = {}
+) {
+    BoxWithConstraints(
+        modifier = Modifier.padding(horizontal = 24.dp)
     ) {
-        chunks.forEach { rowProducts ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                rowProducts.forEach { product ->
-                    ProductCard(product, modifier = Modifier.weight(1f))
-                }
-                if (rowProducts.size == 1) {
-                    Spacer(Modifier.weight(1f))
+        val columns = when {
+            maxWidth < 600.dp -> 2
+            maxWidth < 900.dp -> 3
+            else -> 4
+        }
+        
+        val chunks = products.chunked(columns)
+        Column(
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            chunks.forEach { rowProducts ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    rowProducts.forEach { product ->
+                        ProductCard(
+                            product = product,
+                            modifier = Modifier.weight(1f),
+                            onFavoriteClick = { onFavoriteToggle(product) },
+                            onAddToCart = { onAddToCart(product) }
+                        )
+                    }
+                    // Fill empty spaces in the row to maintain alignment
+                    if (rowProducts.size < columns) {
+                        repeat(columns - rowProducts.size) {
+                            Spacer(Modifier.weight(1f))
+                        }
+                    }
                 }
             }
         }
@@ -336,9 +505,14 @@ fun ProductGrid(products: List<Product>) {
 }
 
 @Composable
-fun ProductCard(product: Product, modifier: Modifier = Modifier) {
+fun ProductCard(
+    product: Product, 
+    modifier: Modifier = Modifier,
+    onFavoriteClick: () -> Unit = {},
+    onAddToCart: () -> Unit = {}
+) {
     Surface(
-        modifier = modifier,
+        modifier = modifier.clickable { /* Navigate to Product Detail */ },
         shape = RoundedCornerShape(24.dp),
         color = Color.White,
         border = BorderStroke(1.dp, Slate100),
@@ -373,6 +547,7 @@ fun ProductCard(product: Product, modifier: Modifier = Modifier) {
                 }
                 
                 Surface(
+                    onClick = onFavoriteClick,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(12.dp)
@@ -382,7 +557,7 @@ fun ProductCard(product: Product, modifier: Modifier = Modifier) {
                 ) {
                     Icon(
                         imageVector = Icons.Default.FavoriteBorder,
-                        contentDescription = null,
+                        contentDescription = "Favorite",
                         modifier = Modifier
                             .padding(8.dp)
                             .size(14.dp),
@@ -443,7 +618,7 @@ fun ProductCard(product: Product, modifier: Modifier = Modifier) {
                 )
                 
                 Surface(
-                    onClick = { /* TODO */ },
+                    onClick = onAddToCart,
                     modifier = Modifier.size(32.dp),
                     shape = CircleShape,
                     color = Slate900

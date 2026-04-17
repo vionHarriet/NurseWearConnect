@@ -19,6 +19,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.*
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -28,6 +32,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.nursewearconnect.ui.theme.*
+import com.example.nursewearconnect.ui.components.PasswordStrengthSection
 
 enum class RecoveryState {
     METHOD_SELECTION, OTP_VERIFICATION, NEW_PASSWORD, SUCCESS
@@ -40,6 +45,7 @@ fun PasswordRecoveryScreen(
 ) {
     var currentState by remember { mutableStateOf(RecoveryState.METHOD_SELECTION) }
     var selectedMethod by remember { mutableStateOf("sms") }
+    var isPasswordValid by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -132,8 +138,10 @@ fun PasswordRecoveryScreen(
                             selectedMethod = selectedMethod,
                             onMethodSelected = { selectedMethod = it }
                         )
-                        RecoveryState.OTP_VERIFICATION -> OtpVerificationContent()
-                        RecoveryState.NEW_PASSWORD -> NewPasswordContent()
+                        RecoveryState.OTP_VERIFICATION -> OtpVerificationContent(selectedMethod)
+                        RecoveryState.NEW_PASSWORD -> NewPasswordContent(
+                            onPasswordValid = { isPasswordValid = it }
+                        )
                         RecoveryState.SUCCESS -> SuccessContent()
                     }
                 }
@@ -162,11 +170,15 @@ fun PasswordRecoveryScreen(
                                 }
                             }
                         },
+                        enabled = if (currentState == RecoveryState.NEW_PASSWORD) isPasswordValid else true,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp),
                         shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Brand600)
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Brand600,
+                            disabledContainerColor = Brand200
+                        )
                     ) {
                         Text(
                             text = when (currentState) {
@@ -320,7 +332,15 @@ fun RecoveryMethodItem(
 }
 
 @Composable
-fun OtpVerificationContent() {
+fun OtpVerificationContent(selectedMethod: String) {
+    val contactInfo = if (selectedMethod == "sms") "••• ••• 4821" else "j•••@hospital.com"
+    val contactLabel = if (selectedMethod == "sms") "Phone" else "Email"
+    val icon = if (selectedMethod == "sms") Icons.Default.PhonelinkRing else Icons.Default.Email
+
+    val otpValues = remember { mutableStateListOf("", "", "", "") }
+    val focusRequesters = remember { List(4) { FocusRequester() } }
+    val focusManager = LocalFocusManager.current
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -336,7 +356,7 @@ fun OtpVerificationContent() {
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                Icons.Default.PhonelinkRing,
+                icon,
                 contentDescription = null,
                 tint = Brand600,
                 modifier = Modifier.size(32.dp)
@@ -344,7 +364,7 @@ fun OtpVerificationContent() {
         }
         Spacer(modifier = Modifier.height(24.dp))
         Text(
-            "Check Your Phone",
+            "Check Your $contactLabel",
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold,
             color = Slate900
@@ -357,7 +377,7 @@ fun OtpVerificationContent() {
             color = Slate500
         )
         Text(
-            "••• ••• 4821",
+            contactInfo,
             fontWeight = FontWeight.SemiBold,
             fontSize = 15.sp,
             color = Slate800
@@ -368,8 +388,42 @@ fun OtpVerificationContent() {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)
         ) {
-            repeat(4) {
-                OtpDigitField()
+            otpValues.forEachIndexed { index, value ->
+                OtpDigitField(
+                    value = value,
+                    onValueChange = { newValue ->
+                        if (newValue.length <= 1) {
+                            otpValues[index] = newValue
+                            if (newValue.isNotEmpty()) {
+                                if (index < 3) {
+                                    focusRequesters[index + 1].requestFocus()
+                                } else {
+                                    focusManager.clearFocus()
+                                }
+                            }
+                        } else if (newValue.length == 2) {
+                            // Handle case where user types quickly or pastes
+                            val lastChar = newValue.last().toString()
+                            otpValues[index] = lastChar
+                            if (index < 3) {
+                                focusRequesters[index + 1].requestFocus()
+                            }
+                        }
+                    },
+                    modifier = Modifier
+                        .focusRequester(focusRequesters[index])
+                        .onKeyEvent { keyEvent ->
+                            if (keyEvent.type == KeyEventType.KeyDown && 
+                                keyEvent.key == Key.Backspace && 
+                                otpValues[index].isEmpty() && 
+                                index > 0) {
+                                focusRequesters[index - 1].requestFocus()
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                )
             }
         }
         Spacer(modifier = Modifier.height(32.dp))
@@ -382,12 +436,15 @@ fun OtpVerificationContent() {
 }
 
 @Composable
-fun OtpDigitField() {
-    var text by remember { mutableStateOf("") }
+fun OtpDigitField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
     OutlinedTextField(
-        value = text,
-        onValueChange = { if (it.length <= 1) text = it },
-        modifier = Modifier.size(64.dp),
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier.size(64.dp),
         shape = RoundedCornerShape(16.dp),
         textStyle = androidx.compose.ui.text.TextStyle(
             textAlign = TextAlign.Center,
@@ -407,10 +464,24 @@ fun OtpDigitField() {
 }
 
 @Composable
-fun NewPasswordContent() {
+fun NewPasswordContent(
+    onPasswordValid: (Boolean) -> Unit
+) {
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
+
+    val hasMinLength = password.length >= 8
+    val hasUppercase = password.any { it.isUpperCase() }
+    val hasNumber = password.any { it.isDigit() }
+    val hasSpecialChar = password.any { !it.isLetterOrDigit() }
+
+    val isValid = hasMinLength && hasUppercase && hasNumber && hasSpecialChar && 
+                  password == confirmPassword && password.isNotEmpty()
+
+    LaunchedEffect(isValid) {
+        onPasswordValid(isValid)
+    }
 
     Column(
         modifier = Modifier
@@ -448,7 +519,7 @@ fun NewPasswordContent() {
             color = Slate500,
             modifier = Modifier.padding(horizontal = 8.dp)
         )
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
         Column(modifier = Modifier.fillMaxWidth()) {
             Text("New Password", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Slate700)
@@ -473,9 +544,18 @@ fun NewPasswordContent() {
                     focusedBorderColor = Brand500
                 )
             )
-            Text("Must be at least 8 characters.", fontSize = 12.sp, color = Slate500, modifier = Modifier.padding(top = 8.dp, start = 4.dp))
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Password Requirements Grid
+            PasswordStrengthSection(
+                hasMinLength = hasMinLength,
+                hasUppercase = hasUppercase,
+                hasNumber = hasNumber,
+                hasSpecialChar = hasSpecialChar
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
 
             Text("Confirm Password", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Slate700)
             Spacer(modifier = Modifier.height(8.dp))
@@ -487,13 +567,23 @@ fun NewPasswordContent() {
                 leadingIcon = { Icon(Icons.Default.LockReset, null, tint = Slate400) },
                 visualTransformation = PasswordVisualTransformation(),
                 shape = RoundedCornerShape(16.dp),
+                isError = confirmPassword.isNotEmpty() && password != confirmPassword,
                 colors = OutlinedTextFieldDefaults.colors(
                     unfocusedContainerColor = Color.White,
                     focusedContainerColor = Color.White,
                     unfocusedBorderColor = Slate200,
-                    focusedBorderColor = Brand500
+                    focusedBorderColor = Brand500,
+                    errorBorderColor = Color.Red
                 )
             )
+            if (confirmPassword.isNotEmpty() && password != confirmPassword) {
+                Text(
+                    "Passwords do not match",
+                    color = Color.Red,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 4.dp, start = 4.dp)
+                )
+            }
         }
     }
 }

@@ -77,6 +77,7 @@ class MainActivity : FragmentActivity() {
 fun NurseWearConnectApp(showBiometricPrompt: (() -> Unit) -> Unit) {
     var showSplash by rememberSaveable { mutableStateOf(true) }
     var currentScreen by rememberSaveable { mutableStateOf(Screen.ONBOARDING) }
+    var userRole by rememberSaveable { mutableStateOf("student") }
     var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.HOME) }
 
     if (showSplash) {
@@ -92,10 +93,15 @@ fun NurseWearConnectApp(showBiometricPrompt: (() -> Unit) -> Unit) {
             Screen.LOGIN -> {
                 LoginScreen(
                     onBack = { currentScreen = Screen.ONBOARDING },
-                    onLoginSuccess = { currentScreen = Screen.MAIN },
+                    onLoginSuccess = { role ->
+                        userRole = role
+                        currentScreen = Screen.MAIN 
+                    },
                     onNavigateToRegister = { currentScreen = Screen.REGISTER },
-                    onBiometricSignIn = {
+                    onNavigateToRecovery = { currentScreen = Screen.RECOVERY },
+                    onBiometricLogin = {
                         showBiometricPrompt {
+                            userRole = "student"
                             currentScreen = Screen.MAIN
                         }
                     }
@@ -104,8 +110,17 @@ fun NurseWearConnectApp(showBiometricPrompt: (() -> Unit) -> Unit) {
             Screen.REGISTER -> {
                 RegisterScreen(
                     onBack = { currentScreen = Screen.LOGIN },
-                    onRegisterSuccess = { currentScreen = Screen.MAIN },
+                    onRegisterSuccess = { role ->
+                        userRole = role
+                        currentScreen = Screen.MAIN
+                    },
                     onNavigateToLogin = { currentScreen = Screen.LOGIN }
+                )
+            }
+            Screen.RECOVERY -> {
+                PasswordRecoveryScreen(
+                    onBack = { currentScreen = Screen.LOGIN },
+                    onSuccess = { currentScreen = Screen.LOGIN }
                 )
             }
             Screen.MAIN -> {
@@ -121,7 +136,13 @@ fun NurseWearConnectApp(showBiometricPrompt: (() -> Unit) -> Unit) {
                 ) { innerPadding ->
                     Box(modifier = Modifier.padding(innerPadding)) {
                         when (currentDestination) {
-                            AppDestinations.HOME -> HomeScreen(PaddingValues(0.dp))
+                            AppDestinations.HOME -> HomeScreen(
+                                innerPadding = PaddingValues(0.dp),
+                                userRole = userRole,
+                                onNavigateToNotifications = { currentScreen = Screen.NOTIFICATIONS },
+                                onNavigateToMessages = { currentScreen = Screen.MESSAGES },
+                                onNavigateToProfile = { currentDestination = AppDestinations.PROFILE }
+                            )
                             AppDestinations.CATALOG -> CatalogScreen(PaddingValues(0.dp))
                             AppDestinations.CART -> CartScreen(PaddingValues(0.dp))
                             AppDestinations.ORDERS -> OrdersScreen(PaddingValues(0.dp))
@@ -130,12 +151,20 @@ fun NurseWearConnectApp(showBiometricPrompt: (() -> Unit) -> Unit) {
                     }
                 }
             }
+            Screen.NOTIFICATIONS -> {
+                NotificationScreen(onBackClick = { currentScreen = Screen.MAIN })
+            }
+            Screen.MESSAGES -> {
+                MessagesScreen(
+                    onBackClick = { currentScreen = Screen.MAIN }
+                )
+            }
         }
     }
 }
 
 enum class Screen {
-    ONBOARDING, LOGIN, REGISTER, MAIN
+    ONBOARDING, LOGIN, REGISTER, RECOVERY, MAIN, NOTIFICATIONS, MESSAGES
 }
 
 @Composable

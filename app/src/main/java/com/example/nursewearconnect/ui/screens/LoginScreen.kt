@@ -37,8 +37,9 @@ import com.example.nursewearconnect.ui.theme.*
 @Composable
 fun LoginScreen(
     onBack: () -> Unit,
-    onLoginSuccess: () -> Unit,
+    onLoginSuccess: (String) -> Unit,
     onNavigateToRegister: () -> Unit,
+    onNavigateToRecovery: () -> Unit,
     onBiometricLogin: () -> Unit
 ) {
     var email by remember { mutableStateOf("") }
@@ -59,8 +60,9 @@ fun LoginScreen(
         } else {
             errorMessage = null
             // Simulate login security
-            // In a real app, you'd call a ViewModel/Repository here
-            onLoginSuccess()
+            // Determine role based on email for demo
+            val role = if (email.contains("vendor", ignoreCase = true)) "vendor" else "student"
+            onLoginSuccess(role)
         }
     }
 
@@ -301,7 +303,7 @@ fun LoginScreen(
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         color = Brand600,
-                        modifier = Modifier.clickable { }
+                        modifier = Modifier.clickable { onNavigateToRecovery() }
                     )
                 }
 
@@ -365,53 +367,51 @@ fun LoginScreen(
                     }
                 }
                 
-                Spacer(modifier = Modifier.height(120.dp)) // Space for footer
+                Spacer(modifier = Modifier.height(32.dp))
             }
-        }
 
-        // Footer
-        Surface(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth(),
-            color = Color.White, // Solid color
-            shadowElevation = 16.dp
-        ) {
-            Column(
-                modifier = Modifier
-                    .padding(24.dp)
-                    .navigationBarsPadding()
+            // Footer
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = Color.White,
+                shadowElevation = 16.dp
             ) {
-                Button(
-                    onClick = handleLogin,
-                    enabled = isFormValid,
+                Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Brand600,
-                        disabledContainerColor = Slate200
-                    )
+                        .padding(24.dp)
+                        .navigationBarsPadding()
                 ) {
-                    Text("Log In", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                }
+                    Button(
+                        onClick = handleLogin,
+                        enabled = isFormValid,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Brand600,
+                            disabledContainerColor = Slate200
+                        )
+                    ) {
+                        Text("Log In", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Text("New to NurseWear?", fontSize = 13.sp, color = Slate500)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        "Create Account",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Brand600,
-                        modifier = Modifier.clickable { onNavigateToRegister() }
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text("New to NurseWear?", fontSize = 13.sp, color = Slate500)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            "Create Account",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Brand600,
+                            modifier = Modifier.clickable { onNavigateToRegister() }
+                        )
+                    }
                 }
             }
         }
@@ -426,6 +426,7 @@ fun LoginPreview() {
             onBack = {},
             onLoginSuccess = {},
             onNavigateToRegister = {},
+            onNavigateToRecovery = {},
             onBiometricLogin = {}
         )
     }
