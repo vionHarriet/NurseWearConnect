@@ -45,8 +45,11 @@ import com.example.nursewearconnect.ui.components.PasswordStrengthSection
 @Composable
 fun RegisterScreen(
     onBack: () -> Unit,
-    onRegisterSuccess: (String) -> Unit,
-    onNavigateToLogin: () -> Unit
+    onRegisterSuccess: (String, String, String, String, String, String?, String?, String?) -> Unit,
+    onNavigateToLogin: () -> Unit,
+    isLoading: Boolean = false,
+    externalError: String? = null,
+    isExternalSuccess: Boolean = false
 ) {
     var fullName by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
@@ -62,7 +65,6 @@ fun RegisterScreen(
     var agreeToTerms by remember { mutableStateOf(false) }
     var receiveUpdates by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var registrationSuccess by remember { mutableStateOf(false) }
     var showTerms by remember { mutableStateOf(false) }
     var showPrivacy by remember { mutableStateOf(false) }
 
@@ -90,19 +92,26 @@ fun RegisterScreen(
             errorMessage = "Passwords do not match"
         } else {
             errorMessage = null
-            if (selectedRole == "vendor") {
-                registrationSuccess = true
-            } else {
-                onRegisterSuccess(selectedRole)
-            }
+            onRegisterSuccess(
+                selectedRole,
+                fullName,
+                email,
+                phoneNumber,
+                password,
+                if (selectedRole == "vendor") businessName else null,
+                if (selectedRole == "vendor") location else null,
+                if (selectedRole == "vendor") businessDescription else null
+            )
         }
     }
+
+    val displayError = externalError ?: errorMessage
 
     if (showTerms) {
         TermsOfServiceScreen(onBack = { showTerms = false })
     } else if (showPrivacy) {
         PrivacyPolicyScreen(onBack = { showPrivacy = false })
-    } else if (registrationSuccess && selectedRole == "vendor") {
+    } else if (isExternalSuccess && selectedRole == "vendor") {
         VendorAwaitingApproval(onBackToLogin = onNavigateToLogin)
     } else {
         Box(
@@ -184,6 +193,24 @@ fun RegisterScreen(
                     .padding(horizontal = 24.dp)
             ) {
                 Spacer(modifier = Modifier.height(16.dp))
+
+                // Display Error if exists
+                displayError?.let {
+                    Surface(
+                        color = Color(0xFFFEF2F2),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.Error, contentDescription = null, tint = Color.Red, modifier = Modifier.size(20.dp))
+                            Text(it, color = Color.Red, fontSize = 14.sp)
+                        }
+                    }
+                }
 
                 Text(
                     "Join NurseWear Connect",
@@ -520,13 +547,8 @@ fun RegisterScreen(
                     }
                 }
 
-                if (errorMessage != null) {
-                    Text(
-                        text = errorMessage ?: "",
-                        color = Color.Red,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(top = 12.dp, start = 4.dp)
-                    )
+                if (displayError != null) {
+                    // Handled above in the Scrollable Column for better visibility
                 }
 
                 Spacer(modifier = Modifier.height(32.dp))
@@ -649,7 +671,7 @@ fun RegisterScreen(
                 ) {
                     Button(
                         onClick = handleRegister,
-                        enabled = isFormValid,
+                        enabled = isFormValid && !isLoading,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp),
@@ -659,7 +681,15 @@ fun RegisterScreen(
                             disabledContainerColor = Slate200
                         )
                     ) {
-                        Text("Create Account", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                color = Color.White,
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text("Create Account", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -918,6 +948,6 @@ fun LegalSection(title: String, content: String) {
 @Composable
 fun RegisterPreview() {
     NurseWearConnectTheme {
-        RegisterScreen({}, {}, {})
+        RegisterScreen({}, { _, _, _, _, _, _, _, _ -> }, {})
     }
 }

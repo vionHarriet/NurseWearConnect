@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import com.example.nursewearconnect.ui.viewmodel.HomeViewModel
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -47,82 +48,75 @@ data class UpdateNotification(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun OrdersScreen(innerPadding: PaddingValues) {
+fun OrdersScreen(
+    innerPadding: PaddingValues,
+    viewModel: HomeViewModel,
+    onNavigateToNotifications: () -> Unit = {},
+    onSupportClick: () -> Unit = {}
+) {
     var selectedFilter by remember { mutableStateOf("Active") }
     val filters = listOf("Active (1)", "Processing", "Delivered", "Returned")
 
-    Scaffold(
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = {
+    val uiState by viewModel.uiState.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Slate50)
+            .padding(bottom = innerPadding.calculateBottomPadding())
+    ) {
+        // Custom Responsive Header
+        Surface(
+            color = Color.White,
+            shadowElevation = 1.dp
+        ) {
+            Column(modifier = Modifier.statusBarsPadding()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
                         "Orders & Tracking",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Slate900
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 20.sp
+                        ),
+                        color = Slate900,
+                        modifier = Modifier.weight(1f)
                     )
-                },
-                navigationIcon = {
+                    
                     IconButton(
-                        onClick = { },
-                        modifier = Modifier
-                            .padding(start = 8.dp)
-                            .size(40.dp)
-                            .background(Slate50, CircleShape)
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            modifier = Modifier.size(20.dp),
-                            tint = Slate600
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = { },
-                        modifier = Modifier
-                            .padding(end = 8.dp)
-                            .size(40.dp)
-                            .background(Slate50, CircleShape)
+                        onClick = onNavigateToNotifications,
+                        modifier = Modifier.size(40.dp)
                     ) {
                         Box {
                             Icon(
                                 Icons.Default.NotificationsNone,
                                 contentDescription = "Notifications",
-                                modifier = Modifier.size(20.dp),
-                                tint = Slate600
+                                modifier = Modifier.size(24.dp),
+                                tint = Slate900
                             )
-                            Box(
-                                modifier = Modifier
-                                    .size(10.dp)
-                                    .background(Color(0xFFF43F5E), CircleShape)
-                                    .border(2.dp, Color.White, CircleShape)
-                                    .align(Alignment.TopEnd)
-                            )
+                            if (uiState.unreadNotificationsCount > 0) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .background(Color(0xFFF43F5E), CircleShape)
+                                        .border(1.5.dp, Color.White, CircleShape)
+                                        .align(Alignment.TopEnd)
+                                )
+                            }
                         }
                     }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = Color.White.copy(alpha = 0.9f)
-                )
-            )
-        },
-        containerColor = Slate50
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(bottom = 24.dp)
-        ) {
-            // Filter Bar
-            item {
+                }
+
+                // Filter Bar integrated into the sticky header
                 LazyRow(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 16.dp),
-                    contentPadding = PaddingValues(horizontal = 24.dp),
+                        .padding(bottom = 12.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(filters) { filter ->
@@ -134,24 +128,56 @@ fun OrdersScreen(innerPadding: PaddingValues) {
                     }
                 }
             }
+        }
 
-            // Active Order Section
-            item {
-                ActiveOrderCard()
+        if (uiState.isLoading) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = Brand600)
             }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 24.dp)
+            ) {
+                // Active Order Section
+                item {
+                    ActiveOrderCard(onSupportClick = onSupportClick)
+                }
 
-            // Updates Section
-            item {
-                SectionHeader(title = "Updates", badge = "2 New")
-                UpdatesList()
-            }
+                // Updates Section
+                item {
+                    SectionHeader(title = "Updates", badge = "${uiState.unreadNotificationsCount} New")
+                    UpdatesList()
+                }
 
-            // Past Orders Section
-            item {
-                SectionHeader(title = "Past Orders")
-                PastOrderCard()
+                // Past Orders Section
+                item {
+                    SectionHeader(title = "Past Orders")
+                    if (uiState.allOrders.isEmpty()) {
+                        EmptyOrdersState()
+                    } else {
+                        // Display items from allOrders
+                        uiState.allOrders.forEach { order ->
+                            PastOrderCard(order)
+                        }
+                    }
+                }
             }
         }
+    }
+}
+
+@Composable
+fun EmptyOrdersState() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(Icons.Default.Inventory2, null, modifier = Modifier.size(48.dp), tint = Slate300)
+        Spacer(Modifier.height(16.dp))
+        Text("No past orders found", color = Slate500, fontSize = 14.sp)
     }
 }
 
@@ -159,14 +185,14 @@ fun OrdersScreen(innerPadding: PaddingValues) {
 fun FilterChip(label: String, isSelected: Boolean, onClick: () -> Unit) {
     Surface(
         modifier = Modifier.clickable { onClick() },
-        shape = RoundedCornerShape(100.dp),
-        color = if (isSelected) Slate900 else Color.White,
+        shape = RoundedCornerShape(12.dp),
+        color = if (isSelected) Brand600 else Color.White,
         border = if (isSelected) null else BorderStroke(1.dp, Slate200),
         shadowElevation = if (isSelected) 2.dp else 0.dp
     ) {
         Text(
             text = label,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             fontSize = 13.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
             color = if (isSelected) Color.White else Slate600
@@ -175,14 +201,14 @@ fun FilterChip(label: String, isSelected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-fun ActiveOrderCard() {
+fun ActiveOrderCard(onSupportClick: () -> Unit = {}) {
     Surface(
         modifier = Modifier
-            .padding(horizontal = 24.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
             .fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
         color = Color.White,
-        border = BorderStroke(1.dp, Brand100),
+        border = BorderStroke(1.dp, Slate100),
         shadowElevation = 2.dp
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
@@ -218,9 +244,9 @@ fun ActiveOrderCard() {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     repeat(2) {
                         Box(
                             modifier = Modifier
@@ -250,21 +276,21 @@ fun ActiveOrderCard() {
                     onClick = { },
                     modifier = Modifier.weight(1f).height(44.dp),
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Slate900)
+                    colors = ButtonDefaults.buttonColors(containerColor = Brand600)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Carrier Link", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text("Track Package", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         Icon(Icons.AutoMirrored.Filled.OpenInNew, null, modifier = Modifier.size(11.dp))
                     }
                 }
                 IconButton(
-                    onClick = { },
+                    onClick = onSupportClick,
                     modifier = Modifier
                         .size(44.dp)
                         .background(Color.White, RoundedCornerShape(12.dp))
                         .border(1.dp, Slate200, RoundedCornerShape(12.dp))
                 ) {
-                    Icon(Icons.Default.ReportProblem, null, modifier = Modifier.size(18.dp), tint = Slate600)
+                    Icon(Icons.Default.SupportAgent, null, modifier = Modifier.size(18.dp), tint = Slate600)
                 }
             }
         }
@@ -275,17 +301,20 @@ fun ActiveOrderCard() {
 fun TrackingTimeline() {
     val steps = listOf(
         TrackingStep("Order Placed", "Oct 12, 09:41 AM", true, false, Icons.Default.Check),
-        TrackingStep("Shipped", "Oct 14, 02:15 PM • Nairobi Hub", true, true, Icons.Default.LocalShipping),
+        TrackingStep("Shipped", "Oct 14, 02:15 PM Nairobi Hub", true, true, Icons.Default.LocalShipping),
         TrackingStep("Delivered", "Estimated Oct 17", false, false, Icons.Default.Home)
     )
 
     Column(modifier = Modifier.padding(start = 11.dp)) {
         steps.forEachIndexed { index, step ->
-            Row(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+            ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(
                         modifier = Modifier
-                            .size(24.dp)
+                            .size(22.dp)
                             .clip(CircleShape)
                             .background(if (step.isCompleted) Brand500 else Color.White)
                             .border(2.dp, if (step.isCompleted) Color.White else Slate200, CircleShape),
@@ -333,7 +362,7 @@ fun SectionHeader(title: String, badge: String? = null) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 12.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -346,8 +375,8 @@ fun SectionHeader(title: String, badge: String? = null) {
                 Text(
                     badge,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
                     color = Brand600
                 )
             }
@@ -358,7 +387,7 @@ fun SectionHeader(title: String, badge: String? = null) {
 @Composable
 fun UpdatesList() {
     Surface(
-        modifier = Modifier.padding(horizontal = 24.dp),
+        modifier = Modifier.padding(horizontal = 16.dp),
         shape = RoundedCornerShape(24.dp),
         color = Color.White,
         border = BorderStroke(1.dp, Slate100)
@@ -367,7 +396,7 @@ fun UpdatesList() {
             UpdateItem(
                 UpdateNotification(
                     "Package out for delivery",
-                    "Your scrubs will arrive today between 2 PM and 5 PM.",
+                    "Your scrubs will arrive today between 2 PM and 5 PM",
                     "Just now",
                     true,
                     Icons.Default.MoveToInbox,
@@ -378,7 +407,7 @@ fun UpdatesList() {
             UpdateItem(
                 UpdateNotification(
                     "15% Off Your Next Reorder",
-                    "Use code NURSE15 at checkout valid for 7 days.",
+                    "Use code NURSEIS at checkout valid for 7 days.",
                     "Yesterday",
                     false,
                     Icons.Default.LocalOffer,
@@ -429,9 +458,13 @@ fun UpdateItem(update: UpdateNotification) {
 }
 
 @Composable
-fun PastOrderCard() {
+fun PastOrderCard(order: Map<String, Any> = emptyMap()) {
+    val orderId = order["id"]?.toString() ?: "NW-7210"
+    val date = order["created_at"]?.toString() ?: "Sep 28, 2023"
+    val status = order["status"]?.toString() ?: "Delivered"
+
     Surface(
-        modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         shape = RoundedCornerShape(24.dp),
         color = Color.White,
         border = BorderStroke(1.dp, Slate100)
@@ -459,14 +492,14 @@ fun PastOrderCard() {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Order #NW-7210", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Slate900)
-                    Text("Delivered", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Slate400)
+                    Text("Order #$orderId", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Slate900)
+                    Text(status, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (status == "Delivered") Color(0xFF059669) else Slate400)
                 }
                 Spacer(modifier = Modifier.height(4.dp))
-                Text("Sep 28, 2023 • 3 Items", fontSize = 12.sp, color = Slate500)
+                Text("$date • KSh ${order["total_amount"] ?: "0"}", fontSize = 12.sp, color = Slate500)
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("View Receipt", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Brand600)
+                    Text("View Details", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Brand600)
                     Icon(Icons.AutoMirrored.Filled.OpenInNew, null, modifier = Modifier.size(12.dp), tint = Brand600)
                 }
             }

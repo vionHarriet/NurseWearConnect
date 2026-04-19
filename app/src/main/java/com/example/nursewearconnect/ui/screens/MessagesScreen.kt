@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.nursewearconnect.ui.viewmodel.HomeViewModel
 import com.example.nursewearconnect.ui.theme.*
 
 data class Message(
@@ -43,21 +44,32 @@ data class ChatPreview(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MessagesScreen(onBackClick: () -> Unit) {
+fun MessagesScreen(onBackClick: () -> Unit, viewModel: HomeViewModel) {
+    val uiState by viewModel.uiState.collectAsState()
     var selectedChatId by remember { mutableStateOf<Int?>(null) }
     
-    val initialChats = listOf(
-        ChatPreview(1, "Elite Scrubs Vendor", "Sure, I can customize the embroidery for you.", "10:30 AM", 2, "🏪", listOf(
-            Message(1, "Hello, can I customize the embroidery?", false, "10:25 AM"),
-            Message(2, "Sure, I can customize the embroidery for you.", true, "10:30 AM")
-        )),
-        ChatPreview(2, "Support Team", "Your inquiry has been resolved.", "Yesterday", 0, "💬"),
-        ChatPreview(3, "Modern Med Wear", "We have the blue sets back in stock.", "Mon", 0, "👕"),
-        ChatPreview(4, "Dr. Michael Chen", "How do these fit compared to Barco?", "Sun", 1, "👨‍⚕️")
-    )
+    // Transform Map to ChatPreview for the UI
+    val chats = uiState.messages.map { msgMap ->
+        ChatPreview(
+            id = (msgMap["id"] as? Double)?.toInt() ?: 0,
+            senderName = msgMap["senderName"] as? String ?: "Unknown",
+            lastMessage = msgMap["text"] as? String ?: "",
+            time = msgMap["time"] as? String ?: "",
+            unreadCount = (msgMap["unreadCount"] as? Double)?.toInt() ?: 0,
+            avatarEmoji = msgMap["avatarEmoji"] as? String ?: "👤"
+        )
+    }.ifEmpty {
+        listOf(
+            ChatPreview(1, "Elite Scrubs Vendor", "Sure, I can customize the embroidery for you.", "10:30 AM", 2, "🏪", listOf(
+                Message(1, "Hello, can I customize the embroidery?", false, "10:25 AM"),
+                Message(2, "Sure, I can customize the embroidery for you.", true, "10:30 AM")
+            )),
+            ChatPreview(2, "Support Team", "Your inquiry has been resolved.", "Yesterday", 0, "💬"),
+            ChatPreview(3, "Modern Med Wear", "We have the blue sets back in stock.", "Mon", 0, "👕"),
+            ChatPreview(4, "Dr. Michael Chen", "How do these fit compared to trends?", "Sun", 1, "👨‍⚕️")
+        )
+    }
     
-    var chats by remember { mutableStateOf(initialChats) }
-
     if (selectedChatId != null) {
         val chat = chats.find { it.id == selectedChatId }
         if (chat != null) {
@@ -65,10 +77,8 @@ fun MessagesScreen(onBackClick: () -> Unit) {
                 chat = chat,
                 onBack = { selectedChatId = null },
                 onSendMessage = { text ->
-                    val newMessage = Message(chat.messages.size + 1, text, true, "Just now")
-                    chats = chats.map { 
-                        if (it.id == chat.id) it.copy(messages = it.messages + newMessage, lastMessage = text) else it 
-                    }
+                    viewModel.sendMessage(text)
+                    selectedChatId = null // Simple UI response for now
                 }
             )
         }

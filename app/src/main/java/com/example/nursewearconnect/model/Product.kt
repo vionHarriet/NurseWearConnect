@@ -4,19 +4,28 @@ data class Product(
     val id: String,
     val name: String,
     val category: String,
+    val gender: String, // "Male", "Female", or "Unisex"
     val priceKes: Int,
     val rating: Double,
     val reviewsCount: Int,
     val tag: String?,
     val images: List<String>,
-    val emoji: String
+    val description: String = "",
+    val material: String = "High-quality, breathable fabric designed for all-day comfort.",
+    val features: List<String> = emptyList(),
+    val inStock: Boolean = true,
+    val availableSizes: List<String> = listOf("XS", "S", "M", "L", "XL", "XXL"),
+    val availableColors: List<ProductColor> = listOf(
+        ProductColor("Navy", 0xFF1E3A8A),
+        ProductColor("Black", 0xFF000000),
+        ProductColor("Teal", 0xFF0D9488)
+    ),
+    val subCategory: String? = null,
+    val measurementGuide: Map<String, String>? = null,
+    val vendor_id: String? = null
 )
 
-val MOCK_PRODUCTS = listOf(
-    Product("1", "Women's V-Neck Core Scrub Top", "Top", 3500, 4.8, 124, "NEW", emptyList(), "👕"),
-    Product("2", "Women's Jogger Scrub Pants", "Pants", 4200, 4.9, 89, null, emptyList(), "👖"),
-    Product("3", "Premium Flex Scrub Set", "Set", 10500, 4.8, 201, "BESTSELLER", emptyList(), "👗"),
-    Product("4", "ComfortPro Lab Coat", "Jacket", 8000, 4.6, 67, "SALE", emptyList(), "🥼"),
-    Product("5", "CoolBreeze Anti-Microbial Top", "Top", 3200, 4.7, 156, null, emptyList(), "👕"),
-    Product("6", "Flex-Fit Cargo Scrub Pants", "Pants", 4500, 4.5, 43, null, emptyList(), "👖")
+data class ProductColor(
+    val name: String,
+    val hex: Long
 )

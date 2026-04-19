@@ -37,10 +37,12 @@ import com.example.nursewearconnect.ui.theme.*
 @Composable
 fun LoginScreen(
     onBack: () -> Unit,
-    onLoginSuccess: (String) -> Unit,
+    onLoginSuccess: (String, String) -> Unit,
     onNavigateToRegister: () -> Unit,
     onNavigateToRecovery: () -> Unit,
-    onBiometricLogin: () -> Unit
+    onBiometricLogin: () -> Unit,
+    isLoading: Boolean = false,
+    externalError: String? = null
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -59,12 +61,11 @@ fun LoginScreen(
             errorMessage = "Password must be at least 8 characters"
         } else {
             errorMessage = null
-            // Simulate login security
-            // Determine role based on email for demo
-            val role = if (email.contains("vendor", ignoreCase = true)) "vendor" else "student"
-            onLoginSuccess(role)
+            onLoginSuccess(email, password)
         }
     }
+
+    val displayError = externalError ?: errorMessage
 
     Box(
         modifier = Modifier
@@ -189,7 +190,7 @@ fun LoginScreen(
                     "Email or Phone",
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
-                    color = Slate700,
+                    color = if (errorMessage != null && email.isBlank()) MaterialTheme.colorScheme.error else Slate700,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
                 OutlinedTextField(
@@ -201,14 +202,20 @@ fun LoginScreen(
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = { Text("jane@hospital.com", color = Slate400) },
                     leadingIcon = {
-                        Icon(Icons.Default.MailOutline, contentDescription = null, tint = Slate400)
+                        Icon(
+                            Icons.Default.MailOutline, 
+                            contentDescription = null, 
+                            tint = if (errorMessage != null && email.isBlank()) MaterialTheme.colorScheme.error else Slate400
+                        )
                     },
+                    isError = errorMessage != null && email.isBlank(),
                     shape = RoundedCornerShape(16.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         unfocusedContainerColor = Slate50,
                         focusedContainerColor = Slate50,
                         unfocusedBorderColor = Slate200,
-                        focusedBorderColor = Brand500
+                        focusedBorderColor = Brand500,
+                        errorBorderColor = MaterialTheme.colorScheme.error
                     ),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(
@@ -226,7 +233,7 @@ fun LoginScreen(
                     "Password",
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
-                    color = Slate700,
+                    color = if (errorMessage != null && password.length < 8) MaterialTheme.colorScheme.error else Slate700,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
                 OutlinedTextField(
@@ -238,7 +245,11 @@ fun LoginScreen(
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = { Text("••••••••", color = Slate400) },
                     leadingIcon = {
-                        Icon(Icons.Default.Lock, contentDescription = null, tint = Slate400)
+                        Icon(
+                            Icons.Default.Lock, 
+                            contentDescription = null, 
+                            tint = if (errorMessage != null && password.length < 8) MaterialTheme.colorScheme.error else Slate400
+                        )
                     },
                     trailingIcon = {
                         val image = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff
@@ -248,13 +259,15 @@ fun LoginScreen(
                             Icon(imageVector = image, contentDescription = description, tint = Slate400)
                         }
                     },
+                    isError = errorMessage != null && password.length < 8,
                     visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     shape = RoundedCornerShape(16.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         unfocusedContainerColor = Slate50,
                         focusedContainerColor = Slate50,
                         unfocusedBorderColor = Slate200,
-                        focusedBorderColor = Brand500
+                        focusedBorderColor = Brand500,
+                        errorBorderColor = MaterialTheme.colorScheme.error
                     ),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(
@@ -269,12 +282,39 @@ fun LoginScreen(
                     )
                 )
 
-                if (errorMessage != null) {
-                    Text(
-                        text = errorMessage ?: "",
-                        color = Color.Red,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(top = 8.dp, start = 4.dp)
+                if (displayError != null) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .padding(top = 16.dp)
+                            .fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.ErrorOutline, 
+                                contentDescription = null, 
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = displayError,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 16.dp),
+                        color = Brand600
                     )
                 }
 
@@ -424,7 +464,7 @@ fun LoginPreview() {
     NurseWearConnectTheme {
         LoginScreen(
             onBack = {},
-            onLoginSuccess = {},
+            onLoginSuccess = { _, _ -> },
             onNavigateToRegister = {},
             onNavigateToRecovery = {},
             onBiometricLogin = {}

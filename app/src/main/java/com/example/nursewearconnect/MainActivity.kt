@@ -13,8 +13,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -32,6 +35,13 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.example.nursewearconnect.ui.screens.*
 import com.example.nursewearconnect.ui.theme.*
+
+import com.example.nursewearconnect.ui.viewmodel.HomeViewModel
+import com.example.nursewearconnect.ui.viewmodel.LoginViewModel
+import com.example.nursewearconnect.ui.viewmodel.RegistrationViewModel
+import com.example.nursewearconnect.ui.viewmodel.ViewModelFactory
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.platform.LocalContext
 
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -73,8 +83,13 @@ class MainActivity : FragmentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NurseWearConnectApp(showBiometricPrompt: (() -> Unit) -> Unit) {
+    val context = LocalContext.current
+    val app = context.applicationContext as NurseWearApplication
+    val viewModelFactory = remember { ViewModelFactory(app) }
+
     var showSplash by rememberSaveable { mutableStateOf(true) }
     var currentScreen by rememberSaveable { mutableStateOf(Screen.ONBOARDING) }
     var userRole by rememberSaveable { mutableStateOf("student") }
@@ -91,30 +106,81 @@ fun NurseWearConnectApp(showBiometricPrompt: (() -> Unit) -> Unit) {
                 )
             }
             Screen.LOGIN -> {
+                val loginViewModel: LoginViewModel = viewModel(factory = viewModelFactory)
+                val loginSuccess by loginViewModel.loginSuccess.collectAsState()
+                val loginError by loginViewModel.error.collectAsState()
+                val loginLoading by loginViewModel.isLoading.collectAsState()
+
+                LaunchedEffect(loginSuccess) {
+                    loginSuccess?.let { role ->
+                        userRole = role
+                        app.userRepository.initFromCache() // Refresh role in flow
+                        currentScreen = Screen.MAIN
+                        // After login, we might want to default the destination based on role
+                        currentDestination = if (role == "admin") AppDestinations.CATALOG else AppDestinations.HOME
+                        loginViewModel.resetLoginState()
+                    }
+                }
+
                 LoginScreen(
                     onBack = { currentScreen = Screen.ONBOARDING },
-                    onLoginSuccess = { role ->
-                        userRole = role
-                        currentScreen = Screen.MAIN 
+                    onLoginSuccess = { email, password ->
+                        loginViewModel.login(email, password)
                     },
                     onNavigateToRegister = { currentScreen = Screen.REGISTER },
                     onNavigateToRecovery = { currentScreen = Screen.RECOVERY },
                     onBiometricLogin = {
                         showBiometricPrompt {
-                            userRole = "student"
+                            // In real app, we'd check if token exists
+                            userRole = app.authRepository.getUserRole()
                             currentScreen = Screen.MAIN
                         }
-                    }
+                    },
+                    isLoading = loginLoading,
+                    externalError = loginError
                 )
             }
             Screen.REGISTER -> {
+                val registrationViewModel: RegistrationViewModel = viewModel(factory = viewModelFactory)
+                val registrationSuccess by registrationViewModel.registrationSuccess.collectAsState()
+                val registrationError by registrationViewModel.error.collectAsState()
+                val registrationLoading by registrationViewModel.isLoading.collectAsState()
+
+                LaunchedEffect(registrationSuccess) {
+                    registrationSuccess?.let { role ->
+                        if (role == "vendor") {
+                            // Vendors stay on the success state which shows VendorAwaitingApproval
+                            // Wait for user to click "Back to Login"
+                        } else if (role == "admin") {
+                            userRole = role
+                            currentScreen = Screen.MAIN
+                            registrationViewModel.resetRegistrationState()
+                        } else {
+                            userRole = role
+                            currentScreen = Screen.MAIN
+                            registrationViewModel.resetRegistrationState()
+                        }
+                    }
+                }
+
                 RegisterScreen(
                     onBack = { currentScreen = Screen.LOGIN },
-                    onRegisterSuccess = { role ->
-                        userRole = role
-                        currentScreen = Screen.MAIN
+                    onRegisterSuccess = { role, fullName, email, phone, password, businessName, location, description ->
+                        registrationViewModel.register(
+                            email = email,
+                            password = password,
+                            fullName = fullName,
+                            phoneNumber = phone,
+                            role = role,
+                            businessName = businessName,
+                            location = location,
+                            businessDescription = description
+                        )
                     },
-                    onNavigateToLogin = { currentScreen = Screen.LOGIN }
+                    onNavigateToLogin = { currentScreen = Screen.LOGIN },
+                    isLoading = registrationLoading,
+                    externalError = registrationError,
+                    isExternalSuccess = registrationSuccess != null
                 )
             }
             Screen.RECOVERY -> {
@@ -124,53 +190,254 @@ fun NurseWearConnectApp(showBiometricPrompt: (() -> Unit) -> Unit) {
                 )
             }
             Screen.MAIN -> {
+                val homeViewModel: HomeViewModel = viewModel(factory = viewModelFactory)
+                val homeUiState by homeViewModel.uiState.collectAsState()
+                val snackhostState = remember { SnackbarHostState() }
+
+                LaunchedEffect(homeUiState.error) {
+                    homeUiState.error?.let {
+                        val result = snackhostState.showSnackbar(
+                            message = it,
+                            actionLabel = "Dismiss",
+                            duration = SnackbarDuration.Short
+                        )
+                        if (result == SnackbarResult.ActionPerformed || result == SnackbarResult.Dismissed) {
+                            homeViewModel.clearError()
+                        }
+                    }
+                }
+
+                LaunchedEffect(homeUiState.isLoading) {
+                    if (!homeUiState.isLoading && app.authRepository.getUserRole() == "student" && homeUiState.userName.isEmpty() && app.securityManager.getToken() == null) {
+                        currentScreen = Screen.LOGIN
+                    }
+                }
+
+                val destinations = remember(homeUiState.userRole) {
+                    AppDestinations.entries.filter { 
+                        it != AppDestinations.CART || (homeUiState.userRole == "student" || homeUiState.userRole == "professional")
+                    }
+                }
+                
+                val pagerState = rememberPagerState(
+                    initialPage = destinations.indexOf(currentDestination).coerceAtLeast(0),
+                    pageCount = { destinations.size }
+                )
+
+                LaunchedEffect(currentDestination) {
+                    val targetPage = destinations.indexOf(currentDestination)
+                    if (targetPage != -1 && targetPage != pagerState.currentPage) {
+                        pagerState.animateScrollToPage(targetPage)
+                    }
+                }
+
+                LaunchedEffect(pagerState.currentPage) {
+                    currentDestination = destinations[pagerState.currentPage]
+                }
+
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
+                    snackbarHost = { SnackbarHost(snackhostState) },
                     bottomBar = {
                         NurseBottomNavigation(
+                            userRole = homeUiState.userRole,
                             currentDestination = currentDestination,
-                            onDestinationSelected = { currentDestination = it }
+                            onDestinationSelected = { currentDestination = it },
+                            cartCount = homeUiState.cartCount
                         )
                     },
                     containerColor = Slate50
                 ) { innerPadding ->
-                    Box(modifier = Modifier.padding(innerPadding)) {
-                        when (currentDestination) {
-                            AppDestinations.HOME -> HomeScreen(
-                                innerPadding = PaddingValues(0.dp),
-                                userRole = userRole,
-                                onNavigateToNotifications = { currentScreen = Screen.NOTIFICATIONS },
-                                onNavigateToMessages = { currentScreen = Screen.MESSAGES },
-                                onNavigateToProfile = { currentDestination = AppDestinations.PROFILE }
-                            )
-                            AppDestinations.CATALOG -> CatalogScreen(PaddingValues(0.dp))
-                            AppDestinations.CART -> CartScreen(PaddingValues(0.dp))
-                            AppDestinations.ORDERS -> OrdersScreen(PaddingValues(0.dp))
-                            AppDestinations.PROFILE -> ProfileScreen(PaddingValues(0.dp))
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        HorizontalPager(
+                            state = pagerState,
+                            modifier = Modifier.fillMaxSize(),
+                            userScrollEnabled = true,
+                            beyondViewportPageCount = 1
+                        ) { page ->
+                            val destination = destinations[page]
+                            when (destination) {
+                                AppDestinations.HOME -> HomeScreen(
+                                    innerPadding = innerPadding,
+                                    userRole = homeUiState.userRole,
+                                    onNavigateToNotifications = { currentScreen = Screen.NOTIFICATIONS },
+                                    onNavigateToMessages = { currentScreen = Screen.MESSAGES },
+                                    onNavigateToProfile = { currentDestination = AppDestinations.PROFILE },
+                                    onNavigateToUserLogs = { currentScreen = Screen.USER_LOGS },
+                                    onNavigateToAdminUsers = { currentScreen = Screen.ADMIN_USERS },
+                                    onNavigateToAdminVendors = { currentScreen = Screen.ADMIN_VENDORS },
+                                    onNavigateToAdminInventory = { currentScreen = Screen.ADMIN_INVENTORY },
+                                    onNavigateToAdminOrders = { currentScreen = Screen.ADMIN_ORDERS },
+                                    onNavigateToAdminMarketing = { currentScreen = Screen.ADMIN_MARKETING },
+                                    onNavigateToReports = { currentScreen = Screen.ADMIN_REPORTS },
+                                    onNavigateToVendorInventory = { currentScreen = Screen.VENDOR_INVENTORY },
+                                    onNavigateToVendorOrders = { currentScreen = Screen.VENDOR_ORDERS },
+                                    viewModel = homeViewModel
+                                )
+                                AppDestinations.CATALOG -> {
+                                    if (homeUiState.userRole == "admin") {
+                                        LaunchedEffect(Unit) { homeViewModel.loadAdminData() }
+                                        ReportsScreen(
+                                            innerPadding = innerPadding,
+                                            viewModel = homeViewModel,
+                                            onNavigateToInventory = { currentScreen = Screen.ADMIN_INVENTORY }
+                                        )
+                                    } else {
+                                        CatalogScreen(
+                                            innerPadding = innerPadding,
+                                            viewModel = homeViewModel,
+                                            onBack = { currentDestination = AppDestinations.HOME }
+                                        )
+                                    }
+                                }
+                                AppDestinations.CART -> CartScreen(
+                                    innerPadding = innerPadding,
+                                    viewModel = homeViewModel,
+                                    onNavigateToCatalog = { currentDestination = AppDestinations.CATALOG }
+                                )
+                                AppDestinations.ORDERS -> OrdersScreen(
+                                    innerPadding = innerPadding,
+                                    viewModel = homeViewModel,
+                                    onNavigateToNotifications = { currentScreen = Screen.NOTIFICATIONS },
+                                    onSupportClick = { currentScreen = Screen.MESSAGES }
+                                )
+                                AppDestinations.PROFILE -> ProfileScreen(innerPadding, homeViewModel)
+                            }
+                        }
+
+                        // Global Bottom Sheets managed by HomeViewModel
+                        if (homeUiState.selectedProduct != null) {
+                            val product = homeUiState.selectedProduct!!
+                            ModalBottomSheet(
+                                onDismissRequest = { homeViewModel.setSelectedProduct(null) },
+                                containerColor = Color.White,
+                                dragHandle = { BottomSheetDefaults.DragHandle() }
+                            ) {
+                                ProductDetailContent(
+                                    product = product,
+                                    isFavorite = homeUiState.favoriteProductIds.contains(product.id),
+                                    onFavoriteToggle = { homeViewModel.toggleFavorite(product.id) },
+                                    selectedSize = homeUiState.selectedSize,
+                                    onSizeSelected = { homeViewModel.setSelectedSize(it) },
+                                    selectedColor = homeUiState.selectedColor,
+                                    onColorSelected = { homeViewModel.setSelectedColor(it) },
+                                    onAddToCart = { 
+                                        homeViewModel.addToCart(product)
+                                        homeViewModel.setSelectedProduct(null)
+                                    }
+                                )
+                            }
                         }
                     }
                 }
             }
             Screen.NOTIFICATIONS -> {
-                NotificationScreen(onBackClick = { currentScreen = Screen.MAIN })
+                val homeViewModel: HomeViewModel = viewModel(factory = viewModelFactory)
+                NotificationScreen(
+                    onBackClick = { currentScreen = Screen.MAIN },
+                    viewModel = homeViewModel
+                )
             }
             Screen.MESSAGES -> {
+                val homeViewModel: HomeViewModel = viewModel(factory = viewModelFactory)
                 MessagesScreen(
-                    onBackClick = { currentScreen = Screen.MAIN }
+                    onBackClick = { currentScreen = Screen.MAIN },
+                    viewModel = homeViewModel
                 )
+            }
+            Screen.USER_LOGS -> {
+                val homeViewModel: HomeViewModel = viewModel(factory = viewModelFactory)
+                UserLogsScreen(
+                    onBackClick = { currentScreen = Screen.MAIN },
+                    viewModel = homeViewModel
+                )
+            }
+            Screen.ADMIN_USERS -> {
+                val homeViewModel: HomeViewModel = viewModel(factory = viewModelFactory)
+                AdminUserManagementScreen(
+                    onBackClick = { currentScreen = Screen.MAIN },
+                    viewModel = homeViewModel
+                )
+            }
+            Screen.ADMIN_VENDORS -> {
+                val homeViewModel: HomeViewModel = viewModel(factory = viewModelFactory)
+                LaunchedEffect(Unit) { homeViewModel.loadAdminData() }
+                AdminVendorApprovalsScreen(
+                    onBackClick = { currentScreen = Screen.MAIN },
+                    viewModel = homeViewModel
+                )
+            }
+            Screen.ADMIN_INVENTORY -> {
+                val homeViewModel: HomeViewModel = viewModel(factory = viewModelFactory)
+                AdminInventoryScreen(
+                    onBackClick = { currentScreen = Screen.MAIN },
+                    viewModel = homeViewModel
+                )
+            }
+            Screen.ADMIN_ORDERS -> {
+                val homeViewModel: HomeViewModel = viewModel(factory = viewModelFactory)
+                AdminOrderManagementScreen(
+                    onBackClick = { currentScreen = Screen.MAIN },
+                    viewModel = homeViewModel
+                )
+            }
+            Screen.VENDOR_INVENTORY -> {
+                val homeViewModel: HomeViewModel = viewModel(factory = viewModelFactory)
+                VendorInventoryScreen(
+                    onBackClick = { currentScreen = Screen.MAIN },
+                    viewModel = homeViewModel
+                )
+            }
+            Screen.VENDOR_ORDERS -> {
+                val homeViewModel: HomeViewModel = viewModel(factory = viewModelFactory)
+                VendorOrdersScreen(
+                    onBackClick = { currentScreen = Screen.MAIN },
+                    viewModel = homeViewModel
+                )
+            }
+            Screen.ADMIN_MARKETING -> {
+                val homeViewModel: HomeViewModel = viewModel(factory = viewModelFactory)
+                LaunchedEffect(Unit) { homeViewModel.loadAdminData() }
+                AdminMarketingScreen(
+                    onBackClick = { currentScreen = Screen.MAIN },
+                    viewModel = homeViewModel
+                )
+            }
+            Screen.ADMIN_REPORTS -> {
+                val homeViewModel: HomeViewModel = viewModel(factory = viewModelFactory)
+                Scaffold(
+                    topBar = {
+                        TopAppBar(
+                            title = { Text("Reports", fontWeight = FontWeight.Bold) },
+                            navigationIcon = {
+                                IconButton(onClick = { currentScreen = Screen.MAIN }) {
+                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                                }
+                            }
+                        )
+                    }
+                ) { innerPadding ->
+                    ReportsScreen(
+                        innerPadding = innerPadding,
+                        viewModel = homeViewModel,
+                        onNavigateToInventory = { currentScreen = Screen.ADMIN_INVENTORY }
+                    )
+                }
             }
         }
     }
 }
 
 enum class Screen {
-    ONBOARDING, LOGIN, REGISTER, RECOVERY, MAIN, NOTIFICATIONS, MESSAGES
+    ONBOARDING, LOGIN, REGISTER, RECOVERY, MAIN, NOTIFICATIONS, MESSAGES, USER_LOGS, ADMIN_USERS, ADMIN_VENDORS, ADMIN_INVENTORY, ADMIN_ORDERS, VENDOR_INVENTORY, VENDOR_ORDERS, ADMIN_MARKETING, ADMIN_REPORTS
 }
 
 @Composable
 fun NurseBottomNavigation(
+    userRole: String = "student",
     currentDestination: AppDestinations,
-    onDestinationSelected: (AppDestinations) -> Unit
+    onDestinationSelected: (AppDestinations) -> Unit,
+    cartCount: Int = 0
 ) {
     Surface(
         color = Color.White,
@@ -188,13 +455,21 @@ fun NurseBottomNavigation(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 AppDestinations.entries.forEach { destination ->
-                    if (destination == AppDestinations.CART) {
+                    if (destination == AppDestinations.CART && (userRole == "student" || userRole == "professional")) {
                         // Empty box to keep space for the FAB
                         Box(modifier = Modifier.width(56.dp))
+                    } else if (destination == AppDestinations.CART && (userRole != "student" && userRole != "professional")) {
+                        // Don't show cart for admin/vendor
                     } else {
                         val selected = destination == currentDestination
+                        val label = if (destination == AppDestinations.CATALOG && userRole == "admin") "Reports" else destination.label
+                        val filledIcon = if (destination == AppDestinations.CATALOG && userRole == "admin") Icons.Filled.Assessment else destination.filledIcon
+                        val outlinedIcon = if (destination == AppDestinations.CATALOG && userRole == "admin") Icons.Outlined.Assessment else destination.outlinedIcon
+
                         NavItem(
-                            destination = destination,
+                            label = label,
+                            filledIcon = filledIcon,
+                            outlinedIcon = outlinedIcon,
                             selected = selected,
                             onClick = { onDestinationSelected(destination) }
                         )
@@ -202,15 +477,18 @@ fun NurseBottomNavigation(
                 }
             }
             
-            // Floating Cart Button (Centered)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .offset(y = (-20).dp) // relative -top-5
-            ) {
-                CartFab(
-                    onClick = { onDestinationSelected(AppDestinations.CART) }
-                )
+            // Floating Cart Button (Centered) - For students and professionals
+            if (userRole == "student" || userRole == "professional") {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .offset(y = (-20).dp) // relative -top-5
+                ) {
+                    CartFab(
+                        count = cartCount,
+                        onClick = { onDestinationSelected(AppDestinations.CART) }
+                    )
+                }
             }
         }
     }
@@ -218,7 +496,9 @@ fun NurseBottomNavigation(
 
 @Composable
 fun NavItem(
-    destination: AppDestinations,
+    label: String,
+    filledIcon: ImageVector,
+    outlinedIcon: ImageVector,
     selected: Boolean,
     onClick: () -> Unit
 ) {
@@ -252,8 +532,8 @@ fun NavItem(
         Spacer(modifier = Modifier.weight(1f))
         
         Icon(
-            imageVector = if (selected) destination.filledIcon else destination.outlinedIcon,
-            contentDescription = destination.label,
+            imageVector = if (selected) filledIcon else outlinedIcon,
+            contentDescription = label,
             tint = tint,
             modifier = Modifier.size(22.dp)
         )
@@ -261,7 +541,7 @@ fun NavItem(
         Spacer(modifier = Modifier.height(4.dp))
         
         Text(
-            text = destination.label,
+            text = label,
             color = tint,
             fontSize = 10.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
@@ -272,7 +552,7 @@ fun NavItem(
 }
 
 @Composable
-fun CartFab(onClick: () -> Unit) {
+fun CartFab(count: Int, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .size(56.dp) // w-14 h-14
@@ -283,12 +563,14 @@ fun CartFab(onClick: () -> Unit) {
     ) {
         BadgedBox(
             badge = {
-                Badge(
-                    containerColor = Color(0xFFF43F5E), // rose-500
-                    contentColor = Color.White,
-                    modifier = Modifier.offset(x = (-4).dp, y = 4.dp)
-                ) {
-                    Text("2")
+                if (count > 0) {
+                    Badge(
+                        containerColor = Color(0xFFF43F5E), // rose-500
+                        contentColor = Color.White,
+                        modifier = Modifier.offset(x = (-4).dp, y = 4.dp)
+                    ) {
+                        Text(count.toString())
+                    }
                 }
             }
         ) {

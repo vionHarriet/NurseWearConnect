@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.nursewearconnect.ui.viewmodel.HomeViewModel
 import com.example.nursewearconnect.ui.theme.*
 
 data class NotificationItem(
@@ -38,20 +39,41 @@ enum class NotificationType {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NotificationScreen(onBackClick: () -> Unit) {
+fun NotificationScreen(onBackClick: () -> Unit, viewModel: HomeViewModel) {
+    val uiState by viewModel.uiState.collectAsState()
     var selectedNotification by remember { mutableStateOf<NotificationItem?>(null) }
     
-    val notifications = listOf(
-        NotificationItem(1, "Order Shipped", "Your order #NW1234 has been shipped and is on its way. Estimated delivery: Tomorrow by 5 PM.", "2m ago", NotificationType.ORDER),
-        NotificationItem(2, "Flash Sale!", "Get 20% off on all scrub sets this weekend only. Use code NURSE20 at checkout.", "1h ago", NotificationType.PROMO),
-        NotificationItem(3, "Account Verified", "Your vendor profile has been successfully verified. You can now start listing your products in the catalog.", "3h ago", NotificationType.SYSTEM, true),
-        NotificationItem(4, "New Message", "You have a new message from Elite Scrubs Support regarding your custom order.", "5h ago", NotificationType.SYSTEM, true)
-    )
+    val notifications = uiState.notifications.map { notifMap ->
+        NotificationItem(
+            id = (notifMap["id"] as? Double)?.toInt() ?: 0,
+            title = notifMap["title"] as? String ?: "Notification",
+            message = notifMap["message"] as? String ?: "",
+            time = notifMap["time"] as? String ?: "",
+            type = when(notifMap["type"] as? String) {
+                "order" -> NotificationType.ORDER
+                "promo" -> NotificationType.PROMO
+                else -> NotificationType.SYSTEM
+            },
+            isRead = notifMap["isRead"] as? Boolean ?: false
+        )
+    }.ifEmpty {
+        listOf(
+            NotificationItem(1, "Order Shipped", "Your order #NW1234 has been shipped and is on its way. Estimated delivery: Tomorrow by 5 PM.", "2m ago", NotificationType.ORDER),
+            NotificationItem(2, "Flash Sale!", "Get 20% off on all scrub sets this weekend only. Use code NURSE20 at checkout.", "1h ago", NotificationType.PROMO),
+            NotificationItem(3, "Account Verified", "Your vendor profile has been successfully verified. You can now start listing your products in the catalog.", "3h ago", NotificationType.SYSTEM, true),
+            NotificationItem(4, "New Message", "You have a new message from Elite Scrubs Support regarding your custom order.", "5h ago", NotificationType.SYSTEM, true)
+        )
+    }
 
     if (selectedNotification != null) {
         NotificationDetailDialog(
             notification = selectedNotification!!,
-            onDismiss = { selectedNotification = null }
+            onDismiss = { 
+                if (!selectedNotification!!.isRead) {
+                    viewModel.markNotificationAsRead(selectedNotification!!.id)
+                }
+                selectedNotification = null 
+            }
         )
     }
 
