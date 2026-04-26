@@ -133,7 +133,7 @@ fun AdminProductCard(product: Product) {
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(product.name, fontWeight = FontWeight.Bold, color = Slate900, fontSize = 15.sp)
-                Text("Vendor: Elite Uniforms • KSh ${product.priceKes}", fontSize = 12.sp, color = Slate500)
+                Text("KSh ${product.priceKes}", fontSize = 12.sp, color = Slate500)
                 
                 Row(
                     modifier = Modifier.padding(top = 4.dp),
@@ -143,18 +143,18 @@ fun AdminProductCard(product: Product) {
                     // Stock Status
                     Surface(
                         shape = RoundedCornerShape(4.dp),
-                        color = if (product.inStock) Color(0xFFECFDF5) else Color(0xFFFEF2F2)
+                        color = if (product.inStock && product.stockCount > 0) Color(0xFFECFDF5) else Color(0xFFFEF2F2)
                     ) {
                         Text(
-                            if (product.inStock) "In Stock" else "Out of Stock",
+                            if (product.inStock && product.stockCount > 0) "In Stock" else "Out of Stock",
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (product.inStock) Color(0xFF059669) else Color(0xFFDC2626)
+                            color = if (product.inStock && product.stockCount > 0) Color(0xFF059669) else Color(0xFFDC2626)
                         )
                     }
                     
-                    Text("Stock: 42 units", fontSize = 11.sp, color = Slate400)
+                    Text("Stock: ${product.stockCount} units", fontSize = 11.sp, color = Slate400)
                 }
             }
 

@@ -2,13 +2,27 @@ package com.example.nursewearconnect.data.repository
 
 import com.example.nursewearconnect.data.api.ApiService
 import com.example.nursewearconnect.data.security.SecurityManager
+import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.postgresChangeFlow
+import io.github.jan.supabase.storage.storage
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 class UserRepository(
     private val apiService: ApiService,
-    private val securityManager: SecurityManager
+    private val securityManager: SecurityManager,
+    private val supabaseClient: SupabaseClient
 ) {
+    private val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val _userProfile = MutableStateFlow<Map<String, Any>?>(null)
     val userProfile: StateFlow<Map<String, Any>?> = _userProfile
 
@@ -51,7 +65,7 @@ class UserRepository(
             }
             Result.success(profile)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(Exception(com.example.nursewearconnect.utils.AppUtils.mapThrowable(e)))
         }
     }
 
@@ -61,7 +75,33 @@ class UserRepository(
             fetchProfile(userId)
             Result.success(Unit)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(Exception(com.example.nursewearconnect.utils.AppUtils.mapThrowable(e)))
+        }
+    }
+
+    suspend fun uploadImage(userId: String, bytes: ByteArray, bucketName: String): Result<String> {
+        return try {
+            val bucket = supabaseClient.storage.from(bucketName)
+            val extension = "jpg"
+            val fileName = "${bucketName}_${java.util.UUID.randomUUID()}.$extension"
+            val path = "$userId/$fileName"
+            
+            // Upload the file to Supabase Storage
+            bucket.upload(path, bytes) {
+                upsert = true
+            }
+            
+            // Get the public URL
+            val publicUrl = bucket.publicUrl(path)
+            
+            // Only update profile if it's an avatar upload
+            if (bucketName == "avatars") {
+                updateProfile(userId, mapOf("avatar_url" to publicUrl))
+            }
+            
+            Result.success(publicUrl)
+        } catch (e: Exception) {
+            Result.failure(Exception(com.example.nursewearconnect.utils.AppUtils.mapThrowable(e)))
         }
     }
 
@@ -95,7 +135,24 @@ class UserRepository(
             val response = apiService.sendMessage(messageData)
             Result.success(response)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(Exception(com.example.nursewearconnect.utils.AppUtils.mapThrowable(e)))
+        }
+    }
+
+    fun getMessagesRealtime(userId: String): Flow<PostgresAction> {
+        val channel = supabaseClient.channel("messages_realtime")
+        return channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+            table = "messages"
+            // Filter doesn't work directly in postgresChangeFlow for complex OR logic in some SDK versions,
+            // but we can filter the flow later or use a broader subscription.
+        }
+    }
+
+    fun getNotificationsRealtime(userId: String): Flow<PostgresAction> {
+        val channel = supabaseClient.channel("notifications_realtime")
+        return channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+            table = "notifications"
+            // If filter is private or not accessible this way, we'll filter in the ViewModel
         }
     }
 
@@ -114,5 +171,30 @@ class UserRepository(
     fun logout() {
         securityManager.clearToken()
         _userProfile.value = null
+    }
+
+    suspend fun getActiveSessions(userId: String): List<Map<String, Any>> {
+        return try {
+            apiService.getActiveSessions("eq.$userId")
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    suspend fun revokeSession(sessionId: String): Result<Unit> {
+        return try {
+            apiService.revokeSession("eq.$sessionId")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(Exception(com.example.nursewearconnect.utils.AppUtils.mapThrowable(e)))
+        }
+    }
+
+    fun setBiometricEnabled(enabled: Boolean) {
+        securityManager.setBiometricEnabled(enabled)
+    }
+
+    fun isBiometricEnabled(): Boolean {
+        return securityManager.isBiometricEnabled()
     }
 }

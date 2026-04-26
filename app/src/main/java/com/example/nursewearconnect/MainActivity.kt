@@ -91,9 +91,15 @@ fun NurseWearConnectApp(showBiometricPrompt: (() -> Unit) -> Unit) {
     val viewModelFactory = remember { ViewModelFactory(app) }
 
     var showSplash by rememberSaveable { mutableStateOf(true) }
-    var currentScreen by rememberSaveable { mutableStateOf(Screen.ONBOARDING) }
-    var userRole by rememberSaveable { mutableStateOf("student") }
-    var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.HOME) }
+    var currentScreen by rememberSaveable { 
+        mutableStateOf(
+            if (app.securityManager.getToken() != null) Screen.MAIN 
+            else if (app.securityManager.isOnboardingCompleted()) Screen.LOGIN 
+            else Screen.ONBOARDING
+        ) 
+    }
+    var userRole by rememberSaveable { mutableStateOf(app.securityManager.getUserRole() ?: "student") }
+    var currentDestination by rememberSaveable { mutableStateOf(if (userRole == "admin") AppDestinations.CATALOG else AppDestinations.HOME) }
 
     if (showSplash) {
         SplashScreen(onAnimationFinished = { showSplash = false })
@@ -101,8 +107,14 @@ fun NurseWearConnectApp(showBiometricPrompt: (() -> Unit) -> Unit) {
         when (currentScreen) {
             Screen.ONBOARDING -> {
                 OnboardingScreen(
-                    onSkip = { currentScreen = Screen.LOGIN },
-                    onFinish = { currentScreen = Screen.LOGIN }
+                    onSkip = { 
+                        app.securityManager.setOnboardingCompleted(true)
+                        currentScreen = Screen.LOGIN 
+                    },
+                    onFinish = { 
+                        app.securityManager.setOnboardingCompleted(true)
+                        currentScreen = Screen.LOGIN 
+                    }
                 )
             }
             Screen.LOGIN -> {
@@ -193,6 +205,13 @@ fun NurseWearConnectApp(showBiometricPrompt: (() -> Unit) -> Unit) {
                 val homeViewModel: HomeViewModel = viewModel(factory = viewModelFactory)
                 val homeUiState by homeViewModel.uiState.collectAsState()
                 val snackhostState = remember { SnackbarHostState() }
+                val isLoggedIn by app.authRepository.isLoggedIn.collectAsState()
+
+                LaunchedEffect(isLoggedIn) {
+                    if (!isLoggedIn) {
+                        currentScreen = Screen.LOGIN
+                    }
+                }
 
                 LaunchedEffect(homeUiState.error) {
                     homeUiState.error?.let {
@@ -208,124 +227,141 @@ fun NurseWearConnectApp(showBiometricPrompt: (() -> Unit) -> Unit) {
                 }
 
                 LaunchedEffect(homeUiState.isLoading) {
-                    if (!homeUiState.isLoading && app.authRepository.getUserRole() == "student" && homeUiState.userName.isEmpty() && app.securityManager.getToken() == null) {
+                    if (!homeUiState.isLoading && app.securityManager.getToken() == null) {
                         currentScreen = Screen.LOGIN
                     }
                 }
 
-                val destinations = remember(homeUiState.userRole) {
-                    AppDestinations.entries.filter { 
-                        it != AppDestinations.CART || (homeUiState.userRole == "student" || homeUiState.userRole == "professional")
-                    }
-                }
-                
-                val pagerState = rememberPagerState(
-                    initialPage = destinations.indexOf(currentDestination).coerceAtLeast(0),
-                    pageCount = { destinations.size }
-                )
-
-                LaunchedEffect(currentDestination) {
-                    val targetPage = destinations.indexOf(currentDestination)
-                    if (targetPage != -1 && targetPage != pagerState.currentPage) {
-                        pagerState.animateScrollToPage(targetPage)
-                    }
-                }
-
-                LaunchedEffect(pagerState.currentPage) {
-                    currentDestination = destinations[pagerState.currentPage]
-                }
-
-                Scaffold(
-                    modifier = Modifier.fillMaxSize(),
-                    snackbarHost = { SnackbarHost(snackhostState) },
-                    bottomBar = {
-                        NurseBottomNavigation(
-                            userRole = homeUiState.userRole,
-                            currentDestination = currentDestination,
-                            onDestinationSelected = { currentDestination = it },
-                            cartCount = homeUiState.cartCount
-                        )
-                    },
-                    containerColor = Slate50
-                ) { innerPadding ->
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        HorizontalPager(
-                            state = pagerState,
-                            modifier = Modifier.fillMaxSize(),
-                            userScrollEnabled = true,
-                            beyondViewportPageCount = 1
-                        ) { page ->
-                            val destination = destinations[page]
-                            when (destination) {
-                                AppDestinations.HOME -> HomeScreen(
-                                    innerPadding = innerPadding,
-                                    userRole = homeUiState.userRole,
-                                    onNavigateToNotifications = { currentScreen = Screen.NOTIFICATIONS },
-                                    onNavigateToMessages = { currentScreen = Screen.MESSAGES },
-                                    onNavigateToProfile = { currentDestination = AppDestinations.PROFILE },
-                                    onNavigateToUserLogs = { currentScreen = Screen.USER_LOGS },
-                                    onNavigateToAdminUsers = { currentScreen = Screen.ADMIN_USERS },
-                                    onNavigateToAdminVendors = { currentScreen = Screen.ADMIN_VENDORS },
-                                    onNavigateToAdminInventory = { currentScreen = Screen.ADMIN_INVENTORY },
-                                    onNavigateToAdminOrders = { currentScreen = Screen.ADMIN_ORDERS },
-                                    onNavigateToAdminMarketing = { currentScreen = Screen.ADMIN_MARKETING },
-                                    onNavigateToReports = { currentScreen = Screen.ADMIN_REPORTS },
-                                    onNavigateToVendorInventory = { currentScreen = Screen.VENDOR_INVENTORY },
-                                    onNavigateToVendorOrders = { currentScreen = Screen.VENDOR_ORDERS },
-                                    viewModel = homeViewModel
-                                )
-                                AppDestinations.CATALOG -> {
-                                    if (homeUiState.userRole == "admin") {
-                                        LaunchedEffect(Unit) { homeViewModel.loadAdminData() }
-                                        ReportsScreen(
-                                            innerPadding = innerPadding,
-                                            viewModel = homeViewModel,
-                                            onNavigateToInventory = { currentScreen = Screen.ADMIN_INVENTORY }
-                                        )
-                                    } else {
-                                        CatalogScreen(
-                                            innerPadding = innerPadding,
-                                            viewModel = homeViewModel,
-                                            onBack = { currentDestination = AppDestinations.HOME }
-                                        )
-                                    }
-                                }
-                                AppDestinations.CART -> CartScreen(
-                                    innerPadding = innerPadding,
-                                    viewModel = homeViewModel,
-                                    onNavigateToCatalog = { currentDestination = AppDestinations.CATALOG }
-                                )
-                                AppDestinations.ORDERS -> OrdersScreen(
-                                    innerPadding = innerPadding,
-                                    viewModel = homeViewModel,
-                                    onNavigateToNotifications = { currentScreen = Screen.NOTIFICATIONS },
-                                    onSupportClick = { currentScreen = Screen.MESSAGES }
-                                )
-                                AppDestinations.PROFILE -> ProfileScreen(innerPadding, homeViewModel)
-                            }
+                // Vendor Approval Guard
+                if (homeUiState.userRole == "vendor" && homeUiState.userStatus != "active" && !homeUiState.isLoading) {
+                    VendorPendingScreen(
+                        status = homeUiState.userStatus,
+                        statusNotes = homeUiState.statusNotes,
+                        onLogout = { 
+                            homeViewModel.logout()
+                            currentScreen = Screen.LOGIN 
                         }
+                    )
+                } else {
+                    val destinations = remember(homeUiState.userRole) {
+                        AppDestinations.entries.filter { 
+                            it != AppDestinations.CART || (homeUiState.userRole == "student" || homeUiState.userRole == "professional")
+                        }
+                    }
+                    
+                    val pagerState = rememberPagerState(
+                        initialPage = destinations.indexOf(currentDestination).coerceAtLeast(0),
+                        pageCount = { destinations.size }
+                    )
 
-                        // Global Bottom Sheets managed by HomeViewModel
-                        if (homeUiState.selectedProduct != null) {
-                            val product = homeUiState.selectedProduct!!
-                            ModalBottomSheet(
-                                onDismissRequest = { homeViewModel.setSelectedProduct(null) },
-                                containerColor = Color.White,
-                                dragHandle = { BottomSheetDefaults.DragHandle() }
-                            ) {
-                                ProductDetailContent(
-                                    product = product,
-                                    isFavorite = homeUiState.favoriteProductIds.contains(product.id),
-                                    onFavoriteToggle = { homeViewModel.toggleFavorite(product.id) },
-                                    selectedSize = homeUiState.selectedSize,
-                                    onSizeSelected = { homeViewModel.setSelectedSize(it) },
-                                    selectedColor = homeUiState.selectedColor,
-                                    onColorSelected = { homeViewModel.setSelectedColor(it) },
-                                    onAddToCart = { 
-                                        homeViewModel.addToCart(product)
-                                        homeViewModel.setSelectedProduct(null)
+                    LaunchedEffect(currentDestination) {
+                        val targetPage = destinations.indexOf(currentDestination)
+                        if (targetPage != -1 && targetPage != pagerState.currentPage) {
+                            pagerState.animateScrollToPage(targetPage)
+                        }
+                    }
+
+                    LaunchedEffect(pagerState.currentPage) {
+                        currentDestination = destinations[pagerState.currentPage]
+                    }
+
+                    Scaffold(
+                        modifier = Modifier.fillMaxSize(),
+                        snackbarHost = { SnackbarHost(snackhostState) },
+                        bottomBar = {
+                            NurseBottomNavigation(
+                                userRole = homeUiState.userRole,
+                                currentDestination = currentDestination,
+                                onDestinationSelected = { currentDestination = it },
+                                cartCount = homeUiState.cartCount
+                            )
+                        },
+                        containerColor = Slate50
+                    ) { innerPadding ->
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            HorizontalPager(
+                                state = pagerState,
+                                modifier = Modifier.fillMaxSize(),
+                                userScrollEnabled = true,
+                                beyondViewportPageCount = 1
+                            ) { page ->
+                                val destination = destinations[page]
+                                when (destination) {
+                                    AppDestinations.HOME -> HomeScreen(
+                                        innerPadding = innerPadding,
+                                        onNavigateToNotifications = { currentScreen = Screen.NOTIFICATIONS },
+                                        onNavigateToMessages = { currentScreen = Screen.MESSAGES },
+                                        onNavigateToProfile = { currentDestination = AppDestinations.PROFILE },
+                                        onNavigateToUserLogs = { currentScreen = Screen.USER_LOGS },
+                                        onNavigateToAdminUsers = { currentScreen = Screen.ADMIN_USERS },
+                                        onNavigateToAdminVendors = { currentScreen = Screen.ADMIN_VENDORS },
+                                        onNavigateToAdminInventory = { currentScreen = Screen.ADMIN_INVENTORY },
+                                        onNavigateToAdminOrders = { currentScreen = Screen.ADMIN_ORDERS },
+                                        onNavigateToAdminMarketing = { currentScreen = Screen.ADMIN_MARKETING },
+                                        onNavigateToReports = { currentScreen = Screen.ADMIN_REPORTS },
+                                        onNavigateToVendorInventory = { currentScreen = Screen.VENDOR_INVENTORY },
+                                        onNavigateToVendorOrders = { currentScreen = Screen.VENDOR_ORDERS },
+                                        onNavigateToVendorAnalytics = { currentScreen = Screen.VENDOR_ANALYTICS },
+                                        viewModel = homeViewModel
+                                    )
+                                    AppDestinations.CATALOG -> {
+                                        if (homeUiState.userRole == "admin") {
+                                            LaunchedEffect(Unit) { homeViewModel.loadAdminData() }
+                                            ReportsScreen(
+                                                innerPadding = innerPadding,
+                                                viewModel = homeViewModel,
+                                                onNavigateToInventory = { currentScreen = Screen.ADMIN_INVENTORY }
+                                            )
+                                        } else {
+                                            CatalogScreen(
+                                                innerPadding = innerPadding,
+                                                viewModel = homeViewModel,
+                                                onBack = { currentDestination = AppDestinations.HOME }
+                                            )
+                                        }
                                     }
-                                )
+                                    AppDestinations.CART -> CartScreen(
+                                        innerPadding = innerPadding,
+                                        viewModel = homeViewModel,
+                                        onNavigateToCatalog = { currentDestination = AppDestinations.CATALOG }
+                                    )
+                                    AppDestinations.ORDERS -> OrdersScreen(
+                                        innerPadding = innerPadding,
+                                        viewModel = homeViewModel,
+                                        onNavigateToNotifications = { currentScreen = Screen.NOTIFICATIONS },
+                                        onSupportClick = { currentScreen = Screen.MESSAGES }
+                                    )
+                                    AppDestinations.PROFILE -> ProfileScreen(innerPadding, homeViewModel)
+                                }
+                            }
+
+                            // Global Bottom Sheets managed by HomeViewModel
+                            if (homeUiState.selectedProduct != null) {
+                                val product = homeUiState.selectedProduct!!
+                                ModalBottomSheet(
+                                    onDismissRequest = { homeViewModel.setSelectedProduct(null) },
+                                    containerColor = Color.White,
+                                    dragHandle = { BottomSheetDefaults.DragHandle() }
+                                ) {
+                                    ProductDetailContent(
+                                        product = product,
+                                        isFavorite = homeUiState.favoriteProductIds.contains(product.id),
+                                        onFavoriteToggle = { homeViewModel.toggleFavorite(product.id) },
+                                        selectedSize = homeUiState.selectedSize,
+                                        onSizeSelected = { homeViewModel.setSelectedSize(it) },
+                                        selectedColor = homeUiState.selectedColor,
+                                        onColorSelected = { homeViewModel.setSelectedColor(it) },
+                                        onAddToCart = { 
+                                            homeViewModel.addToCart(product)
+                                            homeViewModel.setSelectedProduct(null)
+                                        },
+                                        reviews = homeUiState.productReviews,
+                                        isReviewsLoading = homeUiState.isReviewsLoading,
+                                        onSubmitReview = { rating, comment ->
+                                            homeViewModel.submitReview(product.id, rating, comment)
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -395,6 +431,13 @@ fun NurseWearConnectApp(showBiometricPrompt: (() -> Unit) -> Unit) {
                     viewModel = homeViewModel
                 )
             }
+            Screen.VENDOR_ANALYTICS -> {
+                val homeViewModel: HomeViewModel = viewModel(factory = viewModelFactory)
+                VendorAnalyticsScreen(
+                    onBackClick = { currentScreen = Screen.MAIN },
+                    viewModel = homeViewModel
+                )
+            }
             Screen.ADMIN_MARKETING -> {
                 val homeViewModel: HomeViewModel = viewModel(factory = viewModelFactory)
                 LaunchedEffect(Unit) { homeViewModel.loadAdminData() }
@@ -429,7 +472,7 @@ fun NurseWearConnectApp(showBiometricPrompt: (() -> Unit) -> Unit) {
 }
 
 enum class Screen {
-    ONBOARDING, LOGIN, REGISTER, RECOVERY, MAIN, NOTIFICATIONS, MESSAGES, USER_LOGS, ADMIN_USERS, ADMIN_VENDORS, ADMIN_INVENTORY, ADMIN_ORDERS, VENDOR_INVENTORY, VENDOR_ORDERS, ADMIN_MARKETING, ADMIN_REPORTS
+    ONBOARDING, LOGIN, REGISTER,    RECOVERY, MAIN, NOTIFICATIONS, MESSAGES, USER_LOGS, ADMIN_USERS, ADMIN_VENDORS, ADMIN_INVENTORY, ADMIN_ORDERS, VENDOR_INVENTORY, VENDOR_ORDERS, ADMIN_MARKETING, ADMIN_REPORTS, VENDOR_ANALYTICS
 }
 
 @Composable

@@ -11,7 +11,14 @@ import com.example.nursewearconnect.data.repository.ProductRepository
 import com.example.nursewearconnect.data.repository.UserRepository
 import com.example.nursewearconnect.model.Product
 import com.example.nursewearconnect.model.ProductColor
-import kotlinx.coroutines.delay
+import com.example.nursewearconnect.utils.AppUtils
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.Job
+import io.github.jan.supabase.realtime.PostgresAction
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,6 +30,7 @@ data class HomeUiState(
     val userName: String = "",
     val greeting: String = "Good Morning",
     val unreadNotificationsCount: Int = 0,
+    val unreadMessagesCount: Int = 0,
     val categories: List<String> = listOf("All", "Scrubs", "Jackets", "Shoes", "Accessories"),
     val activeCategory: String = "All",
     val searchQuery: String = "",
@@ -50,6 +58,8 @@ data class HomeUiState(
     val catalogSelectedMaterials: Set<String> = emptySet(),
     val userType: UserType = UserType.PROFESSIONAL,
     val userRole: String = "student",
+    val userStatus: String = "active",
+    val statusNotes: String? = null,
     val products: List<Product> = emptyList(),
     val vendorProducts: List<Product> = emptyList(),
     val vendorOrders: List<Map<String, Any>> = emptyList(),
@@ -60,11 +70,17 @@ data class HomeUiState(
     val systemLogs: List<Map<String, Any>> = emptyList(),
     val notifications: List<Map<String, Any>> = emptyList(),
     val messages: List<Map<String, Any>> = emptyList(),
+    val productReviews: List<Map<String, Any>> = emptyList(),
+    val isReviewsLoading: Boolean = false,
+    val activeSessions: List<Map<String, Any>> = emptyList(),
+    val biometricEnabled: Boolean = false,
+    val notificationsEnabled: Boolean = true,
     val orderId: String? = null,
     val checkoutError: String? = null,
     val checkoutLoading: Boolean = false,
     val paymentStatus: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    val successMessage: String? = null
 )
 
 enum class UserType {
@@ -82,7 +98,8 @@ class HomeViewModel(
     private val paymentRepository: PaymentRepository,
     private val userRepository: UserRepository,
     private val vendorRepository: com.example.nursewearconnect.data.repository.VendorRepository,
-    private val adminRepository: com.example.nursewearconnect.data.repository.AdminRepository
+    private val adminRepository: com.example.nursewearconnect.data.repository.AdminRepository,
+    private val authRepository: com.example.nursewearconnect.data.repository.AuthRepository
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -90,11 +107,55 @@ class HomeViewModel(
     private val _allUsers = MutableStateFlow<List<Map<String, Any>>>(emptyList())
     val allUsers: StateFlow<List<Map<String, Any>>> = _allUsers
 
+    private var searchJob: Job? = null
+
     init {
         observeProducts()
+        observeCategories()
         observeCart()
         observeUserProfile()
         loadHomeData()
+        startRealtimeUpdates()
+        setupSearchDebounce()
+    }
+
+    private fun setupSearchDebounce() {
+        viewModelScope.launch {
+            _uiState
+                .map { state -> state.searchQuery }
+                .distinctUntilChanged()
+                .debounce(500)
+                .collectLatest { query ->
+                    searchCatalog(query)
+                }
+        }
+    }
+
+    private fun startRealtimeUpdates() {
+        val userId = userRepository.getUserId() ?: return
+        
+        // Listen for message changes
+        viewModelScope.launch {
+            userRepository.getMessagesRealtime(userId).collect { action ->
+                // Reload messages on any change to keep it simple and consistent
+                val messages = userRepository.getMessages(userId)
+                _uiState.update { it.copy(
+                    messages = messages,
+                    unreadMessagesCount = messages.count { m -> !(m["isRead"] as? Boolean ?: true) }
+                ) }
+            }
+        }
+
+        // Listen for notification changes
+        viewModelScope.launch {
+            userRepository.getNotificationsRealtime(userId).collect { action ->
+                val notifications = userRepository.getNotifications(userId)
+                _uiState.update { it.copy(
+                    notifications = notifications,
+                    unreadNotificationsCount = notifications.count { n -> !(n["isRead"] as? Boolean ?: true) }
+                ) }
+            }
+        }
     }
 
     private fun observeProducts() {
@@ -102,11 +163,23 @@ class HomeViewModel(
             productRepository.products.collectLatest { products ->
                 _uiState.update { it.copy(
                     products = products,
-                    featuredProduct = products.find { p -> p.tag == "NEW" },
-                    newArrivals = products.filter { p -> p.tag == "NEW" },
-                    recommendations = products.take(4),
+                    featuredProduct = products.find { p -> p.tag == "Featured" || p.tag == "NEW" },
+                    newArrivals = products.filter { p -> p.tag == "NEW" || p.tag == "New Arrival" },
+                    recommendations = products.filter { p -> p.tag == "Recommended" }.ifEmpty { products.take(4) },
                     reorderItems = products.takeLast(2)
                 ) }
+            }
+        }
+    }
+
+    private fun observeCategories() {
+        viewModelScope.launch {
+            productRepository.categories.collectLatest { categories ->
+                if (categories.isNotEmpty()) {
+                    _uiState.update { it.copy(
+                        categories = listOf("All") + categories.map { it.name }
+                    ) }
+                }
             }
         }
     }
@@ -116,6 +189,8 @@ class HomeViewModel(
             userRepository.userProfile.collectLatest { profile ->
                 profile?.let {
                     val newRole = (it["role"] as? String ?: "student").lowercase()
+                    val status = (it["status"] as? String ?: "active").lowercase()
+                    val notes = it["status_notes"] as? String
                     val currentRole = _uiState.value.userRole
                     val name = it["full_name"] as? String ?: ""
                     
@@ -123,11 +198,15 @@ class HomeViewModel(
                         state.copy(
                             userName = name,
                             userRole = newRole,
+                            userStatus = status,
+                            statusNotes = notes,
+                            // Ensure userType (discount logic) is synced with role
                             userType = if (newRole == "student") UserType.STUDENT else UserType.PROFESSIONAL
                         )
                     }
 
-                    if (newRole != currentRole) {
+                    // Trigger data reload if role changed (e.g., promoted to admin)
+                    if (newRole != currentRole && currentRole.isNotEmpty()) {
                         when (newRole) {
                             "admin" -> loadAdminData()
                             "vendor" -> userRepository.getUserId()?.let { id -> loadVendorData(id) }
@@ -149,9 +228,21 @@ class HomeViewModel(
         }
     }
 
-    private fun loadHomeData() {
+    private fun getGreeting(): String {
+        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        return when (hour) {
+            in 0..4 -> "Good Midnight"
+            in 5..10 -> "Good Morning"
+            in 11..12 -> "Good Mid-morning"
+            in 13..16 -> "Good Afternoon"
+            in 17..20 -> "Good Evening"
+            else -> "Good Night"
+        }
+    }
+
+    fun loadHomeData() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            _uiState.update { it.copy(isLoading = true, error = null, greeting = getGreeting()) }
             
             // 1. Refresh Products
             val productsResult = productRepository.refreshProducts()
@@ -159,18 +250,21 @@ class HomeViewModel(
                 _uiState.update { it.copy(error = "Offline mode: Failed to refresh products.") }
             }
             
-            // 2. Refresh Profile if logged in
+            // 1.5 Refresh Categories
+            productRepository.getCategories()
+
             val userId = userRepository.getUserId()
             if (userId != null && userId != "demo_user") {
                 userRepository.fetchProfile(userId)
                     .onFailure { error ->
-                        _uiState.update { it.copy(error = "Profile sync error: ${error.message}") }
+                        _uiState.update { it.copy(error = "Profile sync error: ${AppUtils.mapThrowable(error)}") }
                     }
 
                 // 3. Load other user data
                 val notificationsResult = userRepository.getNotifications(userId)
                 val messagesResult = userRepository.getMessages(userId)
                 val userOrdersResult = orderRepository.getUserOrders("eq.$userId")
+                val sessions = userRepository.getActiveSessions(userId)
                 
                 val orders = userOrdersResult.getOrDefault(emptyList()).map { map ->
                     val profiles = map["profiles"] as? Map<*, *>
@@ -182,7 +276,10 @@ class HomeViewModel(
                     notifications = notificationsResult,
                     messages = messagesResult,
                     allOrders = orders,
-                    unreadNotificationsCount = notificationsResult.count { n -> !(n["isRead"] as? Boolean ?: true) }
+                    activeSessions = sessions,
+                    biometricEnabled = userRepository.isBiometricEnabled(),
+                    unreadNotificationsCount = notificationsResult.count { n -> !(n["isRead"] as? Boolean ?: true) },
+                    unreadMessagesCount = messagesResult.count { m -> !(m["isRead"] as? Boolean ?: true) }
                 ) }
             } else {
                 // Default state for demo/guest
@@ -202,8 +299,7 @@ class HomeViewModel(
     }
 
     fun onSearchQueryChanged(query: String) {
-        _uiState.value = _uiState.value.copy(searchQuery = query)
-        // Implement debouncing here for API calls
+        _uiState.update { it.copy(searchQuery = query) }
     }
 
     fun toggleFavorite(productId: String) {
@@ -229,11 +325,37 @@ class HomeViewModel(
     }
 
     fun setSelectedProduct(product: Product?) {
-        _uiState.value = _uiState.value.copy(
+        _uiState.update { it.copy(
             selectedProduct = product,
             selectedSize = null,
             selectedColor = product?.availableColors?.firstOrNull()
-        )
+        ) }
+        
+        if (product != null) {
+            loadProductReviews(product.id)
+        }
+    }
+
+    private fun loadProductReviews(productId: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isReviewsLoading = true) }
+            productRepository.getProductReviews(productId).onSuccess { reviews ->
+                _uiState.update { it.copy(productReviews = reviews, isReviewsLoading = false) }
+            }.onFailure {
+                _uiState.update { it.copy(isReviewsLoading = false) }
+            }
+        }
+    }
+
+    fun submitReview(productId: String, rating: Int, comment: String) {
+        viewModelScope.launch {
+            val userId = userRepository.getUserId() ?: return@launch
+            productRepository.addReview(productId, userId, rating, comment).onSuccess {
+                loadProductReviews(productId)
+                // Also refresh product to get new average rating
+                productRepository.refreshProducts()
+            }
+        }
     }
 
     fun setSelectedSize(size: String) {
@@ -330,24 +452,24 @@ class HomeViewModel(
 
     fun checkout(userId: String, totalAmount: Double, address: String) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(checkoutLoading = true, checkoutError = null)
+            _uiState.update { it.copy(checkoutLoading = true, checkoutError = null) }
             val result = orderRepository.placeOrder(userId, _uiState.value.cartItems, totalAmount, address)
             when (result) {
                 is OrderResult.Success -> {
-                    _uiState.value = _uiState.value.copy(
+                    _uiState.update { it.copy(
                         orderId = result.orderId,
                         checkoutLoading = false
-                    )
+                    ) }
                     cartRepository.clearCart()
                 }
                 is OrderResult.Error -> {
-                    _uiState.value = _uiState.value.copy(
+                    _uiState.update { it.copy(
                         checkoutError = result.message,
                         checkoutLoading = false
-                    )
+                    ) }
                 }
                 OrderResult.Loading -> {
-                    _uiState.value = _uiState.value.copy(checkoutLoading = true)
+                    _uiState.update { it.copy(checkoutLoading = true) }
                 }
             }
         }
@@ -358,28 +480,194 @@ class HomeViewModel(
             val result = paymentRepository.initiateMpesaPayment(orderId, phoneNumber, amount)
             when (result) {
                 is PaymentStatus.Success -> {
-                    _uiState.value = _uiState.value.copy(paymentStatus = "STK Push Sent")
+                    _uiState.update { it.copy(paymentStatus = result.checkoutId) }
                 }
                 is PaymentStatus.Error -> {
-                    _uiState.value = _uiState.value.copy(paymentStatus = "Payment Error: ${result.message}")
+                    _uiState.update { it.copy(paymentStatus = "Error: ${result.message}") }
+                    // Log payment failure
+                    val userId = userRepository.getUserId() ?: "unknown"
+                    adminRepository.logAction(userId, "PAYMENT_FAILURE", "STK Push failed for order $orderId: ${result.message}", "error")
                 }
-                PaymentStatus.Loading -> {
-                    _uiState.value = _uiState.value.copy(paymentStatus = "Processing Payment...")
-                }
-                PaymentStatus.Idle -> {}
+                else -> {}
             }
         }
+    }
+
+    fun checkPaymentStatus(checkoutId: String) {
+        viewModelScope.launch {
+            val status = paymentRepository.checkStatus(checkoutId)
+            val resultCode = status["ResultCode"]?.toString()
+            if (resultCode == "0") {
+                val receipt = status["MpesaReceiptNumber"]?.toString() ?: "Completed"
+                _uiState.update { it.copy(paymentStatus = receipt) }
+            } else if (resultCode != null && resultCode != "PENDING") {
+                val errorMsg = status["ResultDesc"]?.toString() ?: "Unknown error"
+                _uiState.update { it.copy(paymentStatus = "Error: $errorMsg") }
+                
+                // Log polling failure
+                val userId = userRepository.getUserId() ?: "unknown"
+                adminRepository.logAction(userId, "PAYMENT_POLLING_ERROR", "Payment status check failed for $checkoutId: $errorMsg", "warning")
+            }
+        }
+    }
+
+    fun clearError() {
+        _uiState.update { it.copy(error = null, checkoutError = null, successMessage = null) }
+    }
+
+
+
+    // Vendor Actions
+    fun loadVendorData(vendorId: String) {
+        viewModelScope.launch {
+            try {
+                val productsResult = vendorRepository.getVendorProducts(vendorId)
+                val ordersResult = vendorRepository.getVendorOrders(vendorId)
+                
+                _uiState.update { it.copy(
+                    vendorProducts = productsResult.getOrDefault(emptyList()),
+                    vendorOrders = ordersResult.getOrDefault(emptyList())
+                ) }
+
+                // Check for low stock alerts (less than 5 items)
+                val lowStockItems = productsResult.getOrDefault(emptyList()).filter { it.inStock && it.stockCount < 5 }
+                if (lowStockItems.isNotEmpty()) {
+                    _uiState.update { it.copy(successMessage = "Alert: ${lowStockItems.size} products are low on stock!") }
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(error = "Failed to load vendor data") }
+            }
+        }
+    }
+
+    fun addProduct(product: Product) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            try {
+                vendorRepository.addProduct(product)
+                userRepository.getUserId()?.let { loadVendorData(it) }
+                _uiState.update { it.copy(isLoading = false) }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isLoading = false, error = "Failed to add product") }
+            }
+        }
+    }
+
+    // Admin Actions
+    fun loadAdminData() {
+        viewModelScope.launch {
+            try {
+                val pendingResult = adminRepository.getPendingVendors()
+                val logsResult = adminRepository.getSystemLogs()
+                val usersResult = adminRepository.getAllUsers()
+                val ordersResult = adminRepository.getAllOrders()
+                
+                _uiState.update { it.copy(
+                    pendingVendors = pendingResult.getOrDefault(emptyList()),
+                    systemLogs = logsResult.getOrDefault(emptyList()),
+                    allOrders = ordersResult.getOrDefault(emptyList())
+                ) }
+                _allUsers.value = usersResult.getOrDefault(emptyList())
+            } catch (e: Exception) {
+                _uiState.update { it.copy(error = "Failed to load admin dashboard") }
+            }
+        }
+    }
+
+    fun approveVendor(vendorId: String) {
+        viewModelScope.launch {
+            val adminId = userRepository.getUserId() ?: "unknown"
+            adminRepository.approveVendor(vendorId, adminId)
+            loadAdminData()
+        }
+    }
+
+    fun rejectVendor(vendorId: String, notes: String? = null) {
+        viewModelScope.launch {
+            val adminId = userRepository.getUserId() ?: "unknown"
+            val result = adminRepository.rejectVendor(vendorId, adminId, notes)
+            if (result.isSuccess) {
+                loadAdminData()
+            }
+        }
+    }
+
+    fun clearSystemLogs() {
+        viewModelScope.launch {
+            val adminId = userRepository.getUserId() ?: "unknown"
+            adminRepository.clearSystemLogs().onSuccess {
+                adminRepository.logAction(adminId, "CLEAR_LOGS", "Admin cleared all system logs")
+                loadAdminData()
+            }
+        }
+    }
+
+    fun markNotificationAsRead(id: Int) {
+        viewModelScope.launch {
+            // repository call
+        }
+    }
+
+    fun revokeSession(sessionId: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            val result = userRepository.revokeSession(sessionId)
+            if (result.isSuccess) {
+                val userId = userRepository.getUserId() ?: return@launch
+                val newSessions = userRepository.getActiveSessions(userId)
+                _uiState.update { it.copy(activeSessions = newSessions, isLoading = false) }
+            } else {
+                _uiState.update { it.copy(isLoading = false, error = "Failed to revoke session") }
+            }
+        }
+    }
+
+    fun setBiometricEnabled(enabled: Boolean) {
+        userRepository.setBiometricEnabled(enabled)
+        _uiState.update { it.copy(biometricEnabled = enabled) }
+    }
+
+    fun setNotificationsEnabled(enabled: Boolean) {
+        _uiState.update { it.copy(notificationsEnabled = enabled) }
+        // Here you would typically also register/unregister from FCM
     }
 
     // User Profile, Messages, Notifications
     fun updateProfile(data: Map<String, Any>) {
         viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
             val userId = userRepository.getUserId() ?: return@launch
             val result = userRepository.updateProfile(userId, data)
             if (result.isSuccess) {
-                userRepository.fetchProfile(userId)
+                // Profile observer will pick up the change
+                _uiState.update { it.copy(isLoading = false, successMessage = "Profile updated successfully!") }
             } else {
-                _uiState.update { it.copy(error = "Failed to update profile: ${result.exceptionOrNull()?.message}") }
+                val error = result.exceptionOrNull()
+                _uiState.update { it.copy(
+                    isLoading = false,
+                    error = "Update failed: ${error?.let { AppUtils.mapThrowable(it) } ?: "Unknown error"}"
+                ) }
+            }
+        }
+    }
+
+    fun uploadAvatar(bytes: ByteArray) {
+        viewModelScope.launch {
+            val userId = userRepository.getUserId() ?: return@launch
+            _uiState.update { it.copy(isLoading = true) }
+            
+            // Optimize image before upload
+            val optimizedBytes = AppUtils.optimizeImage(bytes)
+            
+            val result = userRepository.uploadImage(userId, optimizedBytes, "avatars")
+            if (result.isSuccess) {
+                _uiState.update { it.copy(isLoading = false, successMessage = "Profile photo updated!") }
+            } else {
+                val error = result.exceptionOrNull()
+                _uiState.update { it.copy(
+                    isLoading = false,
+                    error = "Upload failed: ${error?.let { AppUtils.mapThrowable(it) } ?: "Unknown error"}"
+                ) }
             }
         }
     }
@@ -396,13 +684,14 @@ class HomeViewModel(
         }
     }
 
-    fun markNotificationAsRead(id: Int) {
-        viewModelScope.launch {
-            // repository call
-        }
+    fun searchCatalog(query: String) {
+        _uiState.update { it.copy(catalogSearchQuery = query) }
+        // Local filtering is already handled by the remember block in CatalogScreen
+        // But for Home screen search or more aggressive caching, we can optionally
+        // try to refresh if query is empty or just let the UI handle it.
     }
-
     fun logout() {
+        authRepository.logout()
         userRepository.logout()
     }
 
@@ -412,27 +701,32 @@ class HomeViewModel(
 
     fun getUserRepository(): UserRepository = userRepository
 
-    // Vendor Actions
-    private fun loadVendorData(vendorId: String) {
-        viewModelScope.launch {
-            val productsResult = vendorRepository.getVendorProducts(vendorId)
-            val ordersResult = vendorRepository.getVendorOrders(vendorId)
-            
-            _uiState.value = _uiState.value.copy(
-                vendorProducts = productsResult.getOrDefault(emptyList()),
-                vendorOrders = ordersResult.getOrDefault(emptyList())
-            )
-        }
-    }
-
-    fun addVendorProduct(product: Product) {
+    fun addVendorProduct(product: Product, imageBytes: ByteArray? = null) {
         viewModelScope.launch {
             val userId = userRepository.getUserId() ?: return@launch
-            val result = vendorRepository.addProduct(product.copy(vendor_id = userId))
+            _uiState.update { it.copy(isLoading = true) }
+
+            var updatedProduct = product.copy(vendor_id = userId)
+
+            // Optimize and upload image if provided
+            if (imageBytes != null) {
+                val optimizedBytes = AppUtils.optimizeImage(imageBytes)
+                val uploadResult = userRepository.uploadImage(userId, optimizedBytes, "products")
+                if (uploadResult.isSuccess) {
+                    updatedProduct = updatedProduct.copy(images = listOf(uploadResult.getOrThrow()))
+                }
+            }
+
+            val result = vendorRepository.addProduct(updatedProduct)
             if (result.isSuccess) {
                 loadVendorData(userId)
+                _uiState.update { it.copy(isLoading = false, successMessage = "Product added successfully") }
             } else {
-                _uiState.update { it.copy(error = "Failed to add product: ${result.exceptionOrNull()?.message}") }
+                val error = result.exceptionOrNull()
+                _uiState.update { it.copy(
+                    isLoading = false,
+                    error = "Failed to add product: ${error?.let { AppUtils.mapThrowable(it) } ?: "Unknown error"}"
+                ) }
             }
         }
     }
@@ -450,7 +744,7 @@ class HomeViewModel(
     fun deleteVendorProduct(productId: String) {
         viewModelScope.launch {
             val userId = userRepository.getUserId() ?: return@launch
-            val result = vendorRepository.deleteProduct(productId)
+            val result = vendorRepository.deleteProduct(productId, userId)
             if (result.isSuccess) {
                 loadVendorData(userId)
             }
@@ -460,44 +754,22 @@ class HomeViewModel(
     fun updateVendorOrderStatus(orderId: String, status: String) {
         viewModelScope.launch {
             val userId = userRepository.getUserId() ?: return@launch
-            val result = vendorRepository.updateOrderStatus(orderId, status)
+            val result = vendorRepository.updateOrderStatus(orderId, status, userId)
             if (result.isSuccess) {
-                loadVendorData(userId)
+                if (_uiState.value.userRole == "admin") {
+                    loadAdminData()
+                } else {
+                    loadVendorData(userId)
+                }
             }
-        }
-    }
-
-    // Admin Actions
-    fun loadAdminData() {
-        viewModelScope.launch {
-            val pendingResult = adminRepository.getPendingVendors()
-            val couponsResult = productRepository.getCoupons()
-            val bannersResult = productRepository.getBanners()
-            val ordersResult = adminRepository.getAllOrders()
-            val logsResult = adminRepository.getSystemLogs()
-            val users = userRepository.getAllUsers()
-
-            val orders = ordersResult.getOrDefault(emptyList()).map { map ->
-                val profiles = map["profiles"] as? Map<*, *>
-                val customerName = profiles?.get("full_name")?.toString() ?: "Customer"
-                
-                map + ("customer_name" to customerName)
-            }
-
-            _allUsers.value = users
-            _uiState.update { it.copy(
-                pendingVendors = pendingResult.getOrDefault(emptyList()),
-                coupons = couponsResult.getOrDefault(emptyList()),
-                banners = bannersResult.getOrDefault(emptyList()),
-                allOrders = orders,
-                systemLogs = logsResult.getOrDefault(emptyList())
-            ) }
         }
     }
 
     fun addCategory(name: String) {
         viewModelScope.launch {
+            val adminId = userRepository.getUserId() ?: "unknown"
             productRepository.addCategory(name).onSuccess {
+                adminRepository.logAction(adminId, "ADD_CATEGORY", "Added category: $name")
                 loadHomeData()
             }
         }
@@ -505,7 +777,9 @@ class HomeViewModel(
 
     fun deleteCategory(name: String) {
         viewModelScope.launch {
+            val adminId = userRepository.getUserId() ?: "unknown"
             productRepository.deleteCategory(name).onSuccess {
+                adminRepository.logAction(adminId, "DELETE_CATEGORY", "Deleted category: $name")
                 loadHomeData()
             }
         }
@@ -513,41 +787,85 @@ class HomeViewModel(
 
     fun addCoupon(coupon: Map<String, Any>) {
         viewModelScope.launch {
+            val adminId = userRepository.getUserId() ?: "unknown"
             productRepository.addCoupon(coupon).onSuccess {
-                loadAdminData()
+                adminRepository.logAction(adminId, "ADD_COUPON", "Created coupon: ${coupon["code"]}")
+                loadAdminMarketingData()
             }
         }
     }
 
     fun deleteCoupon(id: String) {
         viewModelScope.launch {
+            val adminId = userRepository.getUserId() ?: "unknown"
             productRepository.deleteCoupon(id).onSuccess {
-                loadAdminData()
+                adminRepository.logAction(adminId, "DELETE_COUPON", "Deleted coupon ID: $id")
+                loadAdminMarketingData()
             }
         }
     }
 
-    fun approveVendor(vendorId: String) {
+    fun addBanner(banner: Map<String, Any>) {
         viewModelScope.launch {
-            val result = adminRepository.approveVendor(vendorId)
-            if (result.isSuccess) {
-                loadAdminData()
+            val adminId = userRepository.getUserId() ?: "unknown"
+            productRepository.addBanner(banner).onSuccess {
+                adminRepository.logAction(adminId, "ADD_BANNER", "Added banner: ${banner["title"]}")
+                loadAdminMarketingData()
             }
         }
     }
 
-    fun rejectVendor(vendorId: String) {
+    fun deleteBanner(id: String) {
         viewModelScope.launch {
-            val result = adminRepository.rejectVendor(vendorId)
-            if (result.isSuccess) {
-                loadAdminData()
+            val adminId = userRepository.getUserId() ?: "unknown"
+            productRepository.deleteBanner(id).onSuccess {
+                adminRepository.logAction(adminId, "DELETE_BANNER", "Deleted banner ID: $id")
+                loadAdminMarketingData()
             }
         }
     }
 
-    fun clearError() {
-        _uiState.update { it.copy(error = null) }
+    fun loadAdminMarketingData() {
+        viewModelScope.launch {
+            productRepository.getCoupons().onSuccess { coupons ->
+                _uiState.update { it.copy(coupons = coupons) }
+            }
+            productRepository.getBanners().onSuccess { banners ->
+                _uiState.update { it.copy(banners = banners) }
+            }
+        }
     }
+
+    fun uploadBannerImage(bytes: ByteArray, onComplete: (String) -> Unit) {
+        viewModelScope.launch {
+            val userId = userRepository.getUserId() ?: return@launch
+            val optimizedBytes = AppUtils.optimizeImage(bytes)
+            userRepository.uploadImage(userId, optimizedBytes, "banners").onSuccess { url ->
+                onComplete(url)
+            }
+        }
+    }
+
+    fun exportLogsToCSV(): String {
+        val logs = _uiState.value.systemLogs
+        if (logs.isEmpty()) return ""
+        
+        val sb = StringBuilder()
+        sb.append("Date,User,Action,Details\n")
+        
+        logs.forEach { log ->
+            val date = log["created_at"]?.toString()?.split("T")?.firstOrNull() ?: ""
+            val profiles = log["profiles"] as? Map<*, *>
+            val user = profiles?.get("full_name")?.toString() ?: "System"
+            val action = log["action"]?.toString() ?: ""
+            val details = log["details"]?.toString()?.replace(",", ";") ?: ""
+            
+            sb.append("$date,$user,$action,$details\n")
+        }
+        
+        return sb.toString()
+    }
+
 }
 
 data class CartItem(

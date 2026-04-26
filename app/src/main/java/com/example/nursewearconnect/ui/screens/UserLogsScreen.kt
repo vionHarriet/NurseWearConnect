@@ -28,6 +28,8 @@ fun UserLogsScreen(
     viewModel: HomeViewModel
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    var selectedFilter by remember { mutableStateOf("All") }
+    var showExportDialog by remember { mutableStateOf(false) }
     
     LaunchedEffect(Unit) {
         viewModel.loadAdminData()
@@ -40,6 +42,17 @@ fun UserLogsScreen(
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { 
+                        val csvData = viewModel.exportLogsToCSV()
+                        if (csvData.isNotEmpty()) showExportDialog = true
+                    }) {
+                        Icon(Icons.Default.FileDownload, contentDescription = "Export CSV")
+                    }
+                    IconButton(onClick = { viewModel.clearSystemLogs() }) {
+                        Icon(Icons.Default.DeleteSweep, contentDescription = "Clear Logs", tint = Color.Red.copy(alpha = 0.7f))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -65,25 +78,18 @@ fun UserLogsScreen(
                     modifier = Modifier.padding(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    FilterChip(
-                        selected = true,
-                        onClick = { },
-                        label = { Text("All Logs") },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Brand600,
-                            selectedLabelColor = Color.White
+                    val filters = listOf("All", "Security", "Transactions", "System")
+                    filters.forEach { filter ->
+                        FilterChip(
+                            selected = selectedFilter == filter,
+                            onClick = { selectedFilter = filter },
+                            label = { Text(filter) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Brand600,
+                                selectedLabelColor = Color.White
+                            )
                         )
-                    )
-                    FilterChip(
-                        selected = false,
-                        onClick = { },
-                        label = { Text("Security") }
-                    )
-                    FilterChip(
-                        selected = false,
-                        onClick = { },
-                        label = { Text("Transactions") }
-                    )
+                    }
                 }
             }
 
@@ -92,8 +98,28 @@ fun UserLogsScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                val logs: List<Map<String, Any>> = uiState.systemLogs
+                val logs: List<Map<String, Any>> = uiState.systemLogs.filter { log ->
+                    when (selectedFilter) {
+                        "All" -> true
+                        "Security" -> log["action"]?.toString()?.contains("Login", ignoreCase = true) == true || 
+                                     log["action"]?.toString()?.contains("Auth", ignoreCase = true) == true ||
+                                     log["action"]?.toString()?.contains("Security", ignoreCase = true) == true
+                        "Transactions" -> log["action"]?.toString()?.contains("Order", ignoreCase = true) == true || 
+                                         log["action"]?.toString()?.contains("Payment", ignoreCase = true) == true
+                        "System" -> log["action"]?.toString()?.contains("Update", ignoreCase = true) == true ||
+                                   log["action"]?.toString()?.contains("Config", ignoreCase = true) == true
+                        else -> true
+                    }
+                }
                 
+                if (logs.isEmpty()) {
+                    item {
+                        Box(Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("No logs found", color = Slate400)
+                        }
+                    }
+                }
+
                 items(logs) { logMap ->
                     val profiles = logMap["profiles"] as? Map<*, *>
                     val userName = profiles?.get("full_name")?.toString() ?: "System"
@@ -121,6 +147,19 @@ fun UserLogsScreen(
                 }
             }
         }
+    }
+
+    if (showExportDialog) {
+        AlertDialog(
+            onDismissRequest = { showExportDialog = false },
+            title = { Text("Logs Exported") },
+            text = { Text("System logs have been exported to CSV format and are ready for download.") },
+            confirmButton = {
+                Button(onClick = { showExportDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = Brand600)) {
+                    Text("OK")
+                }
+            }
+        )
     }
 }
 

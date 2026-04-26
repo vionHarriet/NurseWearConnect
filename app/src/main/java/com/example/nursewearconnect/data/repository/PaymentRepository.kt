@@ -1,6 +1,7 @@
 package com.example.nursewearconnect.data.repository
 
 import com.example.nursewearconnect.data.api.ApiService
+import com.example.nursewearconnect.utils.AppUtils
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -9,6 +10,7 @@ sealed class PaymentStatus {
     object Idle : PaymentStatus()
     object Loading : PaymentStatus()
     data class Success(val checkoutId: String) : PaymentStatus()
+    data class Completed(val transactionId: String) : PaymentStatus()
     data class Error(val message: String) : PaymentStatus()
 }
 
@@ -31,7 +33,7 @@ class PaymentRepository(private val apiService: ApiService) {
             _paymentState.value = result
             result
         } catch (e: Exception) {
-            val result = PaymentStatus.Error(e.message ?: "Payment initiation failed")
+            val result = PaymentStatus.Error(AppUtils.mapThrowable(e))
             _paymentState.value = result
             result
         }
@@ -39,7 +41,14 @@ class PaymentRepository(private val apiService: ApiService) {
 
     suspend fun checkStatus(checkoutId: String): Map<String, Any> {
         return try {
-            apiService.checkPaymentStatus(checkoutId)
+            val status = apiService.checkPaymentStatus(checkoutId)
+            val resultCode = status["ResultCode"]?.toString()
+            if (resultCode == "0") {
+                _paymentState.value = PaymentStatus.Completed(status["MpesaReceiptNumber"]?.toString() ?: "TRANS_OK")
+            } else if (resultCode != null && resultCode != "PENDING") {
+                _paymentState.value = PaymentStatus.Error(status["ResultDesc"]?.toString() ?: "Payment Failed")
+            }
+            status
         } catch (e: Exception) {
             mapOf("status" to "ERROR", "message" to (e.message ?: "Failed to check status"))
         }

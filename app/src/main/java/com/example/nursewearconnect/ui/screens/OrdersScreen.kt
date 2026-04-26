@@ -26,15 +26,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.nursewearconnect.ui.components.OrderTimelineView
 import com.example.nursewearconnect.ui.theme.*
-
-data class TrackingStep(
-    val title: String,
-    val subtitle: String,
-    val isCompleted: Boolean,
-    val isActive: Boolean,
-    val icon: ImageVector
-)
 
 data class UpdateNotification(
     val title: String,
@@ -267,7 +260,7 @@ fun ActiveOrderCard(onSupportClick: () -> Unit = {}) {
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 20.dp), color = Slate100)
 
-            TrackingTimeline()
+            OrderTimelineView(status = "Shipped") // Example status for the active order card
 
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -291,66 +284,6 @@ fun ActiveOrderCard(onSupportClick: () -> Unit = {}) {
                         .border(1.dp, Slate200, RoundedCornerShape(12.dp))
                 ) {
                     Icon(Icons.Default.SupportAgent, null, modifier = Modifier.size(18.dp), tint = Slate600)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun TrackingTimeline() {
-    val steps = listOf(
-        TrackingStep("Order Placed", "Oct 12, 09:41 AM", true, false, Icons.Default.Check),
-        TrackingStep("Shipped", "Oct 14, 02:15 PM Nairobi Hub", true, true, Icons.Default.LocalShipping),
-        TrackingStep("Delivered", "Estimated Oct 17", false, false, Icons.Default.Home)
-    )
-
-    Column(modifier = Modifier.padding(start = 11.dp)) {
-        steps.forEachIndexed { index, step ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(
-                        modifier = Modifier
-                            .size(22.dp)
-                            .clip(CircleShape)
-                            .background(if (step.isCompleted) Brand500 else Color.White)
-                            .border(2.dp, if (step.isCompleted) Color.White else Slate200, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            step.icon,
-                            contentDescription = null,
-                            modifier = Modifier.size(10.dp),
-                            tint = if (step.isCompleted) Color.White else Slate300
-                        )
-                    }
-                    if (index < steps.size - 1) {
-                        Box(
-                            modifier = Modifier
-                                .width(2.dp)
-                                .height(30.dp)
-                                .background(if (step.isActive) Brand500 else Slate100)
-                        )
-                    }
-                }
-                
-                Spacer(modifier = Modifier.width(16.dp))
-                
-                Column(modifier = Modifier.padding(bottom = if (index < steps.size - 1) 20.dp else 0.dp)) {
-                    Text(
-                        text = step.title,
-                        fontSize = 13.sp,
-                        fontWeight = if (step.isCompleted) FontWeight.Bold else FontWeight.Medium,
-                        color = if (step.isCompleted) Slate900 else Slate400
-                    )
-                    Text(
-                        text = step.subtitle,
-                        fontSize = 11.sp,
-                        color = if (step.isCompleted) Slate500 else Slate400
-                    )
                 }
             }
         }
@@ -459,9 +392,10 @@ fun UpdateItem(update: UpdateNotification) {
 
 @Composable
 fun PastOrderCard(order: Map<String, Any> = emptyMap()) {
-    val orderId = order["id"]?.toString() ?: "NW-7210"
-    val date = order["created_at"]?.toString() ?: "Sep 28, 2023"
-    val status = order["status"]?.toString() ?: "Delivered"
+    val orderId = order["id"]?.toString()?.takeLast(8) ?: "NW-7210"
+    val fullDate = order["created_at"]?.toString() ?: ""
+    val date = if (fullDate.length >= 10) fullDate.substring(0, 10) else "Sep 28, 2023"
+    val status = order["status"]?.toString()?.replaceFirstChar { it.uppercase() } ?: "Delivered"
 
     Surface(
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),

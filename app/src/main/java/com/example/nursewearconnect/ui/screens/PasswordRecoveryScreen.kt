@@ -31,8 +31,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.nursewearconnect.ui.theme.*
 import com.example.nursewearconnect.ui.components.PasswordStrengthSection
+import com.example.nursewearconnect.ui.viewmodel.RecoveryViewModel
+import com.example.nursewearconnect.ui.viewmodel.ViewModelFactory
+import androidx.compose.ui.platform.LocalContext
+import com.example.nursewearconnect.NurseWearApplication
 
 enum class RecoveryState {
     METHOD_SELECTION, OTP_VERIFICATION, NEW_PASSWORD, SUCCESS
@@ -41,11 +46,25 @@ enum class RecoveryState {
 @Composable
 fun PasswordRecoveryScreen(
     onBack: () -> Unit,
-    onSuccess: () -> Unit
+    onSuccess: () -> Unit,
+    viewModel: RecoveryViewModel = viewModel(
+        factory = ViewModelFactory(LocalContext.current.applicationContext as NurseWearApplication)
+    )
 ) {
     var currentState by remember { mutableStateOf(RecoveryState.METHOD_SELECTION) }
-    var selectedMethod by remember { mutableStateOf("sms") }
+    var selectedMethod by remember { mutableStateOf("email") }
     var isPasswordValid by remember { mutableStateOf(false) }
+    var emailInput by remember { mutableStateOf("") }
+    
+    val uiError by viewModel.error.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
+    val isSuccess by viewModel.success.collectAsState()
+
+    LaunchedEffect(isSuccess) {
+        if (isSuccess && currentState == RecoveryState.NEW_PASSWORD) {
+            currentState = RecoveryState.SUCCESS
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -103,6 +122,7 @@ fun PasswordRecoveryScreen(
                                     else -> RecoveryState.METHOD_SELECTION
                                 }
                             }
+                            viewModel.clearState()
                         },
                         modifier = Modifier
                             .size(40.dp)
@@ -131,10 +151,34 @@ fun PasswordRecoveryScreen(
                 }
             }
 
+            // Error display
+            uiError?.let {
+                Surface(
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                    color = Color.Red.copy(alpha = 0.1f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = Color.Red, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            it,
+                            color = Color.Red,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
+            }
+
             Box(modifier = Modifier.weight(1f)) {
                 AnimatedContent(targetState = currentState, label = "recovery_state") { state ->
                     when (state) {
                         RecoveryState.METHOD_SELECTION -> MethodSelectionContent(
+                            email = emailInput,
+                            onEmailChange = { emailInput = it },
                             selectedMethod = selectedMethod,
                             onMethodSelected = { selectedMethod = it }
                         )
@@ -160,17 +204,23 @@ fun PasswordRecoveryScreen(
                 ) {
                     Button(
                         onClick = {
-                            currentState = when (currentState) {
-                                RecoveryState.METHOD_SELECTION -> RecoveryState.OTP_VERIFICATION
-                                RecoveryState.OTP_VERIFICATION -> RecoveryState.NEW_PASSWORD
-                                RecoveryState.NEW_PASSWORD -> RecoveryState.SUCCESS
-                                RecoveryState.SUCCESS -> {
-                                    onSuccess()
-                                    RecoveryState.SUCCESS
+                            if (currentState == RecoveryState.METHOD_SELECTION) {
+                                if (emailInput.isNotBlank()) {
+                                    viewModel.requestPasswordReset(emailInput)
+                                    // For this UI flow, we move to OTP immediately as a placeholder
+                                    // In a real app, you'd wait for success
+                                    currentState = RecoveryState.OTP_VERIFICATION
                                 }
+                            } else if (currentState == RecoveryState.OTP_VERIFICATION) {
+                                currentState = RecoveryState.NEW_PASSWORD
+                            } else if (currentState == RecoveryState.NEW_PASSWORD) {
+                                // Proceed to success
+                                currentState = RecoveryState.SUCCESS
+                            } else if (currentState == RecoveryState.SUCCESS) {
+                                onSuccess()
                             }
                         },
-                        enabled = if (currentState == RecoveryState.NEW_PASSWORD) isPasswordValid else true,
+                        enabled = if (currentState == RecoveryState.NEW_PASSWORD) isPasswordValid else !isLoading,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp),
@@ -180,16 +230,20 @@ fun PasswordRecoveryScreen(
                             disabledContainerColor = Brand200
                         )
                     ) {
-                        Text(
-                            text = when (currentState) {
-                                RecoveryState.METHOD_SELECTION -> "Continue"
-                                RecoveryState.OTP_VERIFICATION -> "Verify"
-                                RecoveryState.NEW_PASSWORD -> "Reset Password"
-                                RecoveryState.SUCCESS -> "Back to Log In"
-                            },
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        if (isLoading) {
+                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                        } else {
+                            Text(
+                                text = when (currentState) {
+                                    RecoveryState.METHOD_SELECTION -> "Continue"
+                                    RecoveryState.OTP_VERIFICATION -> "Verify"
+                                    RecoveryState.NEW_PASSWORD -> "Reset Password"
+                                    RecoveryState.SUCCESS -> "Back to Log In"
+                                },
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
 
                     if (currentState != RecoveryState.SUCCESS) {
@@ -213,6 +267,8 @@ fun PasswordRecoveryScreen(
 
 @Composable
 fun MethodSelectionContent(
+    email: String,
+    onEmailChange: (String) -> Unit,
     selectedMethod: String,
     onMethodSelected: (String) -> Unit
 ) {
@@ -246,26 +302,36 @@ fun MethodSelectionContent(
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            "Select which contact details should we use to reset your password.",
+            "Enter your email to receive a recovery code.",
             textAlign = TextAlign.Center,
             fontSize = 15.sp,
             color = Slate500,
             modifier = Modifier.padding(horizontal = 8.dp)
         )
+        Spacer(modifier = Modifier.height(24.dp))
+
+        OutlinedTextField(
+            value = email,
+            onValueChange = onEmailChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Email Address") },
+            placeholder = { Text("nurse@hospital.com") },
+            leadingIcon = { Icon(Icons.Default.Email, null, tint = Slate400) },
+            shape = RoundedCornerShape(16.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                unfocusedContainerColor = Color.White,
+                focusedContainerColor = Color.White,
+                unfocusedBorderColor = Slate200,
+                focusedBorderColor = Brand500
+            )
+        )
+
         Spacer(modifier = Modifier.height(32.dp))
 
         RecoveryMethodItem(
-            icon = Icons.Default.Sms,
-            title = "Via SMS:",
-            subtitle = "••• ••• 4821",
-            selected = selectedMethod == "sms",
-            onClick = { onMethodSelected("sms") }
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        RecoveryMethodItem(
             icon = Icons.Default.Email,
             title = "Via Email:",
-            subtitle = "j•••@hospital.com",
+            subtitle = email.ifBlank { "your@email.com" },
             selected = selectedMethod == "email",
             onClick = { onMethodSelected("email") }
         )

@@ -13,6 +13,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import kotlinx.coroutines.delay
+import androidx.compose.ui.draw.scale
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -136,8 +140,20 @@ fun CartScreen(
     ) {
         if (checkoutStep == 4) {
             OrderSuccessState(
-                onContinueShopping = onNavigateToCatalog,
-                paymentStatus = uiState.paymentStatus
+                onContinueShopping = {
+                    if (uiState.paymentStatus?.contains("Error") == true) {
+                        checkoutStep = 3
+                    } else {
+                        onNavigateToCatalog()
+                    }
+                },
+                paymentStatus = uiState.paymentStatus,
+                onCheckStatus = {
+                    uiState.paymentStatus?.let { 
+                        // If it's a checkoutId (UUID-like), check it
+                        if (it.length > 20) viewModel.checkPaymentStatus(it)
+                    }
+                }
             )
         } else if (cartItems.isEmpty()) {
             EmptyCartState(onNavigateToCatalog)
@@ -343,46 +359,155 @@ fun EmptyCartState(onNavigateToCatalog: () -> Unit) {
 }
 
 @Composable
-fun OrderSuccessState(onContinueShopping: () -> Unit, paymentStatus: String? = null) {
+fun OrderSuccessState(
+    onContinueShopping: () -> Unit,
+    paymentStatus: String?,
+    onCheckStatus: () -> Unit = {}
+) {
+    var showReceiptAnimation by remember { mutableStateOf(false) }
+    
+    LaunchedEffect(paymentStatus) {
+        if (paymentStatus?.startsWith("TRANS") == true || paymentStatus == "Completed") {
+            delay(500)
+            showReceiptAnimation = true
+        }
+    }
+
     Column(
-        modifier = Modifier.fillMaxSize().background(Color.White).padding(24.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Surface(
-            modifier = Modifier.size(100.dp),
-            shape = CircleShape,
-            color = if (paymentStatus?.contains("Error") == true) MaterialTheme.colorScheme.errorContainer else Brand50
-        ) {
-            Icon(
-                imageVector = if (paymentStatus?.contains("Error") == true) Icons.Default.Close else Icons.Default.Check,
-                contentDescription = null,
-                tint = if (paymentStatus?.contains("Error") == true) MaterialTheme.colorScheme.error else Brand600,
-                modifier = Modifier.padding(24.dp).size(48.dp)
-            )
+        val isCompleted = paymentStatus?.startsWith("TRANS") == true || paymentStatus == "Completed"
+        val isError = paymentStatus?.contains("Error") == true || paymentStatus == "Failed"
+        
+        Box(contentAlignment = Alignment.Center) {
+            // Animated background for success
+            if (isCompleted) {
+                val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+                val scale by infiniteTransition.animateFloat(
+                    initialValue = 1f,
+                    targetValue = 1.2f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(1000, easing = FastOutSlowInEasing),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "scale"
+                )
+                Box(
+                    modifier = Modifier
+                        .size(120.dp)
+                        .scale(scale)
+                        .background(Color(0xFFD1FAE5).copy(alpha = 0.5f), CircleShape)
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .size(100.dp)
+                    .background(
+                        when {
+                            isCompleted -> Color(0xFFD1FAE5)
+                            isError -> Color(0xFFFEE2E2)
+                            else -> Brand50
+                        }, 
+                        CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                AnimatedContent(
+                    targetState = paymentStatus,
+                    transitionSpec = {
+                        fadeIn(animationSpec = tween(500)) togetherWith fadeOut(animationSpec = tween(500))
+                    },
+                    label = "icon_transition"
+                ) { targetStatus ->
+                    Icon(
+                        imageVector = when {
+                            targetStatus?.startsWith("TRANS") == true || targetStatus == "Completed" -> Icons.Default.CheckCircle
+                            targetStatus?.contains("Error") == true || targetStatus == "Failed" -> Icons.Default.Error
+                            else -> Icons.Default.Payments
+                        },
+                        contentDescription = null,
+                        modifier = Modifier.size(60.dp),
+                        tint = when {
+                            targetStatus?.startsWith("TRANS") == true || targetStatus == "Completed" -> Color(0xFF059669)
+                            targetStatus?.contains("Error") == true || targetStatus == "Failed" -> Color(0xFFDC2626)
+                            else -> Brand600
+                        }
+                    )
+                }
+            }
         }
-        Spacer(modifier = Modifier.height(24.dp))
+        
+        Spacer(Modifier.height(24.dp))
+        
         Text(
-            text = if (paymentStatus?.contains("Error") == true) "Payment Failed" else "Order Placed Successfully!",
-            fontSize = 22.sp,
+            text = when {
+                isCompleted -> "Payment Successful!"
+                isError -> "Payment Failed"
+                else -> "Awaiting Payment..."
+            },
+            fontSize = 24.sp,
             fontWeight = FontWeight.Bold,
             color = Slate900
         )
+        
         Text(
-            text = paymentStatus ?: "Your order has been placed and is being processed. You will receive an update soon.",
-            fontSize = 14.sp,
+            text = when {
+                isCompleted -> "Your order has been confirmed and is being processed."
+                isError -> "There was an issue processing your M-Pesa payment. Please try again."
+                else -> "Please enter your M-Pesa PIN on your phone to complete the transaction."
+            },
+            fontSize = 16.sp,
             color = Slate500,
-            modifier = Modifier.padding(top = 12.dp),
-            textAlign = TextAlign.Center
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 8.dp)
         )
-        Spacer(modifier = Modifier.height(32.dp))
+
+        AnimatedVisibility(
+            visible = showReceiptAnimation,
+            enter = expandVertically() + fadeIn()
+        ) {
+            Surface(
+                modifier = Modifier.padding(top = 24.dp).fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                color = Slate50,
+                border = BorderStroke(1.dp, Slate200)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Transaction ID:", fontSize = 12.sp, color = Slate500)
+                        Text(paymentStatus ?: "", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Slate900)
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text("A copy of your receipt has been sent to your email.", fontSize = 11.sp, color = Brand600)
+                }
+            }
+        }
+        
+        if (!isCompleted && !isError) {
+            Spacer(Modifier.height(16.dp))
+            CircularProgressIndicator(color = Brand600, modifier = Modifier.size(24.dp))
+            TextButton(onClick = onCheckStatus, modifier = Modifier.padding(top = 16.dp)) {
+                Text("Refresh Status", color = Brand600, fontWeight = FontWeight.Bold)
+            }
+        }
+        
+        Spacer(Modifier.height(40.dp))
+        
         Button(
             onClick = onContinueShopping,
-            modifier = Modifier.fillMaxWidth().height(52.dp),
+            modifier = Modifier.fillMaxWidth().height(56.dp),
             shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Brand600)
+            colors = ButtonDefaults.buttonColors(containerColor = if (isError) Color.DarkGray else Brand600)
         ) {
-            Text("Continue Shopping")
+            Text(if (isError) "Back to Cart" else "Continue Shopping", fontWeight = FontWeight.Bold)
         }
     }
 }

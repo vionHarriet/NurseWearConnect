@@ -38,8 +38,16 @@ class NurseWearApplication : Application() {
         AuthRepository(supabaseClient, securityManager, apiService)
     }
     
+    val database: com.example.nursewearconnect.data.local.AppDatabase by lazy {
+        androidx.room.Room.databaseBuilder(
+            applicationContext,
+            com.example.nursewearconnect.data.local.AppDatabase::class.java,
+            "nursewear_db"
+        ).fallbackToDestructiveMigration().build()
+    }
+
     val productRepository: ProductRepository by lazy {
-        ProductRepository(apiService)
+        ProductRepository(apiService, database.productDao(), database.categoryDao())
     }
 
     val cartRepository: CartRepository by lazy {
@@ -55,14 +63,14 @@ class NurseWearApplication : Application() {
     }
 
     val userRepository: UserRepository by lazy {
-        UserRepository(apiService, securityManager)
-    }
-
-    val vendorRepository: VendorRepository by lazy {
-        VendorRepository(apiService)
+        UserRepository(apiService, securityManager, supabaseClient)
     }
 
     val adminRepository: AdminRepository by lazy {
         AdminRepository(apiService)
+    }
+
+    val vendorRepository: VendorRepository by lazy {
+        VendorRepository(apiService, adminRepository)
     }
 }

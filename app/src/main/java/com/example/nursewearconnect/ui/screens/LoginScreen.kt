@@ -32,6 +32,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.nursewearconnect.ui.theme.*
+import com.example.nursewearconnect.utils.AppUtils
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,11 +53,15 @@ fun LoginScreen(
 
     val focusManager = LocalFocusManager.current
 
-    val isFormValid = email.isNotBlank() && password.length >= 8
+    val isEmailValid = AppUtils.isEmail(email)
+    val isPasswordValid = password.length >= 8
+    val isFormValid = isEmailValid && isPasswordValid
 
     val handleLogin = {
         if (email.isBlank() || password.isBlank()) {
             errorMessage = "Please enter both email and password"
+        } else if (!isEmailValid) {
+            errorMessage = "Please enter a valid email address"
         } else if (password.length < 8) {
             errorMessage = "Password must be at least 8 characters"
         } else {
@@ -404,6 +409,35 @@ fun LoginScreen(
                             fontSize = 12.sp,
                             color = Slate500
                         )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Social Logins
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { /* TODO: Google Login */ },
+                        modifier = Modifier.weight(1f).height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Slate200)
+                    ) {
+                        Icon(Icons.Default.GTranslate, contentDescription = null, tint = Color.Unspecified)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Google", color = Slate700)
+                    }
+                    OutlinedButton(
+                        onClick = { /* TODO: Apple Login */ },
+                        modifier = Modifier.weight(1f).height(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Slate200)
+                    ) {
+                        Icon(Icons.Default.PhoneIphone, contentDescription = null, tint = Color.Black)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Apple", color = Slate700)
                     }
                 }
                 

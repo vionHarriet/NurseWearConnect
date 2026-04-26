@@ -5,6 +5,8 @@ import com.example.nursewearconnect.data.security.SecurityManager
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -57,7 +59,7 @@ class AuthRepository(
                 Result.failure(Exception("Login failed: No session received"))
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(Exception(com.example.nursewearconnect.utils.AppUtils.mapThrowable(e)))
         }
     }
 
@@ -111,11 +113,23 @@ class AuthRepository(
                 Result.success(Unit)
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(Exception(com.example.nursewearconnect.utils.AppUtils.mapThrowable(e)))
         }
     }
 
     fun logout() {
+        try {
+            @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
+            GlobalScope.launch {
+                try {
+                    supabaseClient.auth.signOut()
+                } catch (e: Exception) {
+                    // Ignore
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore
+        }
         securityManager.clearToken()
         _isLoggedIn.value = false
     }
@@ -141,7 +155,7 @@ class AuthRepository(
             supabaseClient.auth.resetPasswordForEmail(email)
             Result.success(Unit)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(Exception(com.example.nursewearconnect.utils.AppUtils.mapThrowable(e)))
         }
     }
 
@@ -158,7 +172,7 @@ class AuthRepository(
             }
             Result.success(Unit)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(Exception(com.example.nursewearconnect.utils.AppUtils.mapThrowable(e)))
         }
     }
 }

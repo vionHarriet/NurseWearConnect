@@ -70,6 +70,14 @@ class SecurityManager(context: Context) {
         return sharedPreferences.getBoolean("biometric_enabled", false)
     }
 
+    fun setOnboardingCompleted(completed: Boolean) {
+        sharedPreferences.edit().putBoolean("onboarding_completed", completed).apply()
+    }
+
+    fun isOnboardingCompleted(): Boolean {
+        return sharedPreferences.getBoolean("onboarding_completed", false)
+    }
+
     fun saveCart(cartItems: List<CartItem>) {
         val json = gson.toJson(cartItems)
         sharedPreferences.edit().putString("cart_items", json).apply()

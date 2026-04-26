@@ -1,7 +1,10 @@
 package com.example.nursewearconnect.utils
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import androidx.compose.ui.graphics.Color
 import com.example.nursewearconnect.ui.theme.*
+import java.io.ByteArrayOutputStream
 import java.text.NumberFormat
 import java.util.*
 import java.util.regex.Pattern
@@ -112,6 +115,85 @@ object AppUtils {
             diff < 86400000 -> "${diff / 3600000}h ago"
             else -> "${diff / 86400000}d ago"
         }
+    }
+
+    /**
+     * Error Mapping: Converts technical exceptions to user-friendly messages.
+     * This method is designed to be idempotent; if it receives an already mapped
+     * friendly message, it will return it as is.
+     */
+    fun mapThrowable(t: Throwable): String {
+        val originalMessage = t.message ?: ""
+        val message = originalMessage.lowercase()
+        
+        return when {
+            message.contains("invalid_credentials") -> 
+                "Invalid email or password. Please try again."
+            message.contains("email_not_confirmed") -> 
+                "Please confirm your email address before logging in."
+            message.contains("user_already_exists") -> 
+                "An account with this email already exists."
+            message.contains("network") || message.contains("timeout") || message.contains("connect") -> 
+                "Network error. Please check your internet connection."
+            message.contains("rate_limit") || message.contains("429") ->
+                "Too many attempts. Please try again later."
+            message.contains("insufficient_funds") ->
+                "Transaction failed: Insufficient funds."
+            message.contains("expired") ->
+                "Your session has expired. Please log in again."
+            message.contains("forbidden") || message.contains("403") ->
+                "Access denied. You don't have permission for this action."
+            message.contains("not_found") || message.contains("404") ->
+                "Resource not found. Please try again."
+            // If the message already looks like a friendly sentence (no curly braces, no technical keywords)
+            // or if it's already one of our mapped results, return it as is.
+            originalMessage.isNotEmpty() && !message.contains("{") && !message.contains("exception") && 
+            !message.contains("http") && !message.contains("supabase") && !message.contains("ktor") ->
+                originalMessage
+            else -> "An error occurred. Please try again or contact support."
+        }
+    }
+
+    /**
+     * Image Optimization: Compress and resize image before upload
+     */
+    fun optimizeImage(bytes: ByteArray, maxWidth: Int = 1024, maxHeight: Int = 1024, quality: Int = 80): ByteArray {
+        val options = BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+
+        // Calculate sample size
+        options.inSampleSize = calculateInSampleSize(options, maxWidth, maxHeight)
+        options.inJustDecodeBounds = false
+
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: return bytes
+        
+        // Final resize if needed to match exact maxWidth/maxHeight constraints
+        val resizedBitmap = if (bitmap.width > maxWidth || bitmap.height > maxHeight) {
+            val scale = Math.min(maxWidth.toFloat() / bitmap.width, maxHeight.toFloat() / bitmap.height)
+            Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).toInt(), (bitmap.height * scale).toInt(), true)
+        } else {
+            bitmap
+        }
+
+        val outputStream = ByteArrayOutputStream()
+        resizedBitmap.compress(Bitmap.CompressFormat.JPEG, quality, outputStream)
+        return outputStream.toByteArray()
+    }
+
+    private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
+        val (height: Int, width: Int) = options.run { outHeight to outWidth }
+        var inSampleSize = 1
+
+        if (height > reqHeight || width > reqWidth) {
+            val halfHeight: Int = height / 2
+            val halfWidth: Int = width / 2
+            while (halfHeight / inSampleSize >= reqHeight && halfWidth / inSampleSize >= reqWidth) {
+                inSampleSize *= 2
+            }
+        }
+        return inSampleSize
     }
 
     /**

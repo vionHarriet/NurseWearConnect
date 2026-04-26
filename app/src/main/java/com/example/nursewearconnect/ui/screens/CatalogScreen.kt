@@ -145,7 +145,7 @@ fun CatalogScreen(
                 }
 
                 // Row 2: Category Filters (Horizontal Scroll)
-                val categories = listOf("All", "Uniform", "Top", "Pants", "Set", "Jacket", "Equipment", "Theatre Shoes")
+                val categories = uiState?.categories ?: listOf("All", "Uniform", "Top", "Pants", "Set", "Jacket", "Equipment", "Theatre Shoes")
                 LazyRow(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -271,12 +271,12 @@ fun CatalogScreen(
                 .fillMaxSize()
                 .padding(bottom = innerPadding.calculateBottomPadding())
         ) {
-            if (uiState?.isLoading == true) {
+            if (uiState?.isLoading == true && (uiState?.products?.isEmpty() == true)) {
                 CircularProgressIndicator(
                     modifier = Modifier.align(Alignment.Center),
                     color = Brand600
                 )
-            } else if (filteredProducts.isEmpty()) {
+            } else if (filteredProducts.isEmpty() && uiState?.isLoading == false) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -284,30 +284,58 @@ fun CatalogScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    Icon(
-                        Icons.Default.SearchOff,
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = Slate300
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        "No products found",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Slate900
-                    )
-                    Text(
-                        "Try adjusting your filters or search query",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Slate500,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Button(
-                        onClick = { viewModel?.resetFilters(); viewModel?.setCatalogSearchQuery("") },
-                        colors = ButtonDefaults.buttonColors(containerColor = Brand600)
-                    ) {
-                        Text("Reset All Filters")
+                    if (uiState?.error != null) {
+                        Icon(
+                            Icons.Default.CloudOff,
+                            contentDescription = null,
+                            modifier = Modifier.size(64.dp),
+                            tint = Slate300
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            "Network Error",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Slate900
+                        )
+                        Text(
+                            uiState?.error ?: "Unknown error",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Slate500,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Button(
+                            onClick = { viewModel?.loadHomeData() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Brand600)
+                        ) {
+                            Text("Retry Connection")
+                        }
+                    } else {
+                        Icon(
+                            Icons.Default.SearchOff,
+                            contentDescription = null,
+                            modifier = Modifier.size(64.dp),
+                            tint = Slate300
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            "No products found",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Slate900
+                        )
+                        Text(
+                            "Try adjusting your filters or search query",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Slate500,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Button(
+                            onClick = { viewModel?.resetFilters(); viewModel?.setCatalogSearchQuery("") },
+                            colors = ButtonDefaults.buttonColors(containerColor = Brand600)
+                        ) {
+                            Text("Reset All Filters")
+                        }
                     }
                 }
             } else {
@@ -711,6 +739,31 @@ fun ProductListItem(
                 ) {
                     Column {
                         Text("KSh ${product.priceKes}", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Slate900)
+                        
+                        // Vendor Info
+                        product.vendorName?.let { vName ->
+                            Row(
+                                modifier = Modifier.padding(top = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(Icons.Default.Storefront, null, modifier = Modifier.size(10.dp), tint = Slate400)
+                                Text(
+                                    vName,
+                                    fontSize = 10.sp,
+                                    color = Slate500,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                product.vendorRating?.let { vRating ->
+                                    Text("•", fontSize = 10.sp, color = Slate300)
+                                    Icon(Icons.Filled.Star, null, tint = Color(0xFFF59E0B), modifier = Modifier.size(8.dp))
+                                    Text("%.1f".format(vRating), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Slate600)
+                                }
+                            }
+                        }
+
                         if (product.availableSizes.isNotEmpty()) {
                             Row(modifier = Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Box(modifier = Modifier.size(12.dp).background(Color(0xFF1E3A8A), CircleShape).border(1.dp, Slate200, CircleShape))

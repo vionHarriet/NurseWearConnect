@@ -20,13 +20,13 @@ interface ApiService {
 
     // Categories
     @GET("rest/v1/categories")
-    suspend fun getCategories(): List<String>
+    suspend fun getCategories(): List<com.example.nursewearconnect.model.Category>
     
     @POST("rest/v1/categories")
-    suspend fun addCategory(@Body category: Map<String, String>): Map<String, String>
+    suspend fun addCategory(@Body category: Map<String, String>): com.example.nursewearconnect.model.Category
 
-    @DELETE("rest/v1/categories/{name}")
-    suspend fun deleteCategory(@Path("name") name: String): Map<String, String>
+    @DELETE("rest/v1/categories")
+    suspend fun deleteCategory(@Query("name") filter: String): Map<String, String>
 
     // Coupons
     @GET("rest/v1/coupons")
@@ -35,8 +35,8 @@ interface ApiService {
     @POST("rest/v1/coupons")
     suspend fun addCoupon(@Body coupon: Map<String, Any>): Map<String, Any>
 
-    @DELETE("rest/v1/coupons/{id}")
-    suspend fun deleteCoupon(@Path("id") id: String): Map<String, String>
+    @DELETE("rest/v1/coupons")
+    suspend fun deleteCoupon(@Query("id") filter: String): Map<String, String>
 
     // Banners
     @GET("rest/v1/banners")
@@ -45,8 +45,8 @@ interface ApiService {
     @POST("rest/v1/banners")
     suspend fun addBanner(@Body banner: Map<String, Any>): Map<String, Any>
 
-    @DELETE("rest/v1/banners/{id}")
-    suspend fun deleteBanner(@Path("id") id: String): Map<String, String>
+    @DELETE("rest/v1/banners")
+    suspend fun deleteBanner(@Query("id") filter: String): Map<String, String>
 
     @GET("rest/v1/products?featured=eq.true")
     suspend fun getFeaturedProducts(): List<Product>
@@ -54,6 +54,9 @@ interface ApiService {
     // Orders
     @POST("rest/v1/orders")
     suspend fun createOrder(@Body orderData: Map<String, Any>): Map<String, Any>
+
+    @POST("rest/v1/order_items")
+    suspend fun createOrderItem(@Body itemData: Map<String, Any>): Map<String, Any>
 
     @GET("rest/v1/orders?select=*,profiles(full_name)")
     suspend fun getUserOrders(@Query("user_id") filter: String): List<Map<String, Any>>
@@ -73,7 +76,10 @@ interface ApiService {
     suspend fun getAllProfiles(): List<Map<String, Any>>
 
     @PATCH("rest/v1/profiles")
-    suspend fun updateProfile(@Query("id") userId: String, @Body data: Map<String, Any>): Map<String, Any>
+    suspend fun updateProfile(@Query("id") userId: String, @Body data: Map<String, Any>)
+
+    @GET("rest/v1/profiles?status=eq.pending&role=eq.vendor")
+    suspend fun getPendingVendors(): List<Map<String, Any>>
 
     // Messages
     @GET("rest/v1/messages?select=*")
@@ -85,6 +91,9 @@ interface ApiService {
     // Notifications
     @GET("rest/v1/notifications?select=*")
     suspend fun getNotifications(@Query("user_id") filter: String): List<Map<String, Any>>
+
+    @POST("rest/v1/notifications")
+    suspend fun createNotification(@Body notification: Map<String, Any>): Map<String, Any>
 
     // Vendor Operations
     @GET("rest/v1/products")
@@ -99,16 +108,39 @@ interface ApiService {
     @DELETE("rest/v1/products")
     suspend fun deleteProduct(@Query("id") id: String): Map<String, String>
 
-    @GET("rest/v1/orders?select=*,profiles(full_name)")
+    @GET("rest/v1/orders?select=*,profiles(full_name),order_items(*,products(name))")
     suspend fun getVendorOrders(@Query("vendor_id") filter: String): List<Map<String, Any>>
 
     @PATCH("rest/v1/orders")
     suspend fun updateOrderStatus(@Query("id") filter: String, @Body status: Map<String, String>): Map<String, Any>
 
     // Admin Operations
-    @GET("rest/v1/orders?select=*,profiles(full_name)")
+    @GET("rest/v1/orders?select=*,profiles(full_name),order_items(*,products(name))")
     suspend fun getAllOrders(): List<Map<String, Any>>
 
     @GET("rest/v1/system_logs?select=*,profiles(full_name)")
     suspend fun getSystemLogs(): List<Map<String, Any>>
+
+    @DELETE("rest/v1/system_logs")
+    suspend fun clearSystemLogs(@Query("id") filter: String = "neq.0"): Map<String, String>
+
+    @POST("rest/v1/system_logs")
+    suspend fun logAction(@Body logData: Map<String, Any>): Map<String, Any>
+
+    // Session Management
+    @GET("rest/v1/user_sessions?select=*")
+    suspend fun getActiveSessions(@Query("user_id") filter: String): List<Map<String, Any>>
+
+    @DELETE("rest/v1/user_sessions")
+    suspend fun revokeSession(@Query("id") filter: String): Map<String, String>
+
+    @GET("rest/v1/products")
+    suspend fun searchProducts(@Query("name") query: String): List<Product>
+
+    // Product Reviews
+    @GET("rest/v1/reviews?select=*,profiles(full_name)")
+    suspend fun getProductReviews(@Query("product_id") filter: String): List<Map<String, Any>>
+
+    @POST("rest/v1/reviews")
+    suspend fun addReview(@Body reviewData: Map<String, Any>): Map<String, Any>
 }

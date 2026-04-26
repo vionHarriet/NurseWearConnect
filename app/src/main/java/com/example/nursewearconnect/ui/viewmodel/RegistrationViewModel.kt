@@ -3,6 +3,7 @@ package com.example.nursewearconnect.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.nursewearconnect.data.repository.AuthRepository
+import com.example.nursewearconnect.utils.AppUtils
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -49,7 +50,7 @@ class RegistrationViewModel(private val authRepository: AuthRepository) : ViewMo
                 _registrationSuccess.value = role
             }
             result.onFailure {
-                _error.value = it.message ?: "Registration failed"
+                _error.value = AppUtils.mapThrowable(it)
             }
         }
     }

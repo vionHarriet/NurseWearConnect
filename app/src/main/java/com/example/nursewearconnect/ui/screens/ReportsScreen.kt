@@ -29,12 +29,14 @@ fun ReportsScreen(
     onNavigateToInventory: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val allUsers by viewModel.allUsers.collectAsState()
     
     // Dynamic calculations
-    val totalRevenue = uiState.allOrders.sumOf { (it["totalAmount"] as? Number)?.toDouble() ?: 0.0 }
+    val totalRevenue = uiState.allOrders.filter { it["status"] == "delivered" }.sumOf { (it["total_amount"] as? Number)?.toDouble() ?: 0.0 }
     val totalOrders = uiState.allOrders.size
-    val activeUsers = 3150 // Still static unless we have a UserRepository.getAllUsers()
-    val returnRate = "2%" // Placeholder for return logic
+    val activeUsers = allUsers.count { it["status"] == "active" }
+    val returnedOrders = uiState.allOrders.count { it["status"] == "returned" }
+    val returnRate = if (totalOrders > 0) "${(returnedOrders.toDouble() / totalOrders * 100).toInt()}%" else "0%"
 
     LazyColumn(
         modifier = Modifier
@@ -85,10 +87,10 @@ fun ReportsScreen(
                 StatCard(
                     modifier = Modifier.weight(1f),
                     title = "Returns",
-                    value = "14", // Placeholder
+                    value = returnedOrders.toString(),
                     icon = Icons.AutoMirrored.Filled.AssignmentReturn,
                     color = Color(0xFFF43F5E),
-                    trend = "-2%"
+                    trend = returnRate
                 )
                 StatCard(
                     modifier = Modifier.weight(1f),

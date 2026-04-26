@@ -4,6 +4,8 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.animation.core.*
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -12,6 +14,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,7 +39,6 @@ import com.example.nursewearconnect.ui.viewmodel.HomeViewModel
 @Composable
 fun HomeScreen(
     innerPadding: PaddingValues, 
-    userRole: String = "student",
     onNavigateToNotifications: () -> Unit = {},
     onNavigateToMessages: () -> Unit = {},
     onNavigateToProfile: () -> Unit = {},
@@ -50,9 +52,21 @@ fun HomeScreen(
     onNavigateToReports: () -> Unit = {},
     onNavigateToVendorInventory: () -> Unit = {},
     onNavigateToVendorOrders: () -> Unit = {},
+    onNavigateToVendorAnalytics: () -> Unit = {},
     viewModel: HomeViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    var showSizeQuiz by rememberSaveable { mutableStateOf(false) }
+
+    if (showSizeQuiz) {
+        SizeQuizBottomSheet(
+            onDismiss = { showSizeQuiz = false },
+            onComplete = { size ->
+                showSizeQuiz = false
+                // Handle size recommendation logic here
+            }
+        )
+    }
     val userRole = uiState.userRole
 
     Box(
@@ -84,7 +98,7 @@ fun HomeScreen(
                 userName = uiState.userName,
                 greeting = uiState.greeting,
                 unreadNotificationsCount = uiState.unreadNotificationsCount,
-                unreadMessagesCount = 2, // Example static for now
+                unreadMessagesCount = uiState.unreadMessagesCount,
                 onNotificationsClick = onNavigateToNotifications,
                 onMessagesClick = onNavigateToMessages,
                 onProfileClick = onNavigateToProfile
@@ -95,21 +109,32 @@ fun HomeScreen(
             if (userRole != "admin") {
                 CategorySelector(
                     categories = uiState.categories, 
-                    activeCat = uiState.activeCategory
-                ) { viewModel.onCategorySelected(it) }
+                    activeCat = uiState.activeCategory,
+                    onCategorySelected = { viewModel.onCategorySelected(it) }
+                )
             } else {
                 Spacer(modifier = Modifier.height(16.dp))
             }
             
             if (userRole == "vendor") {
-                VendorStats()
+                VendorStats(
+                    orderCount = uiState.vendorOrders.size,
+                    lowStockCount = uiState.vendorProducts.count { !it.inStock }
+                )
             } else if (userRole == "admin") {
-                AdminStats(onInventoryClick = { onNavigateToAdminInventory() })
+                val allUsers by viewModel.allUsers.collectAsState()
+                AdminStats(
+                    userCount = allUsers.size,
+                    pendingVendors = uiState.pendingVendors.size,
+                    onInventoryClick = { onNavigateToAdminInventory() }
+                )
             } else {
                 HeroBanner(
                     featuredProduct = uiState.featuredProduct,
                     onShopNowClick = { onNavigateToCatalog() }
                 )
+                
+                SizeFinderCard(onStartQuiz = { showSizeQuiz = true })
             }
             
             // New Arrivals Section
@@ -128,8 +153,13 @@ fun HomeScreen(
             
             QuickActions(
                 userRole = userRole,
-                onQuickReorderClick = { viewModel.setShowQuickReorder(true) },
-                onFavoritesClick = { viewModel.setShowFavorites(true) },
+                onQuickReorderClick = { 
+                    if (userRole == "vendor") onNavigateToMessages() else viewModel.setShowQuickReorder(true) 
+                },
+                onFavoritesClick = { 
+                    if (userRole == "vendor") onNavigateToVendorInventory() else viewModel.setShowFavorites(true) 
+                },
+                onVendorAnalyticsClick = onNavigateToVendorAnalytics,
                 onUserLogsClick = onNavigateToUserLogs,
                 onAdminUsersClick = onNavigateToAdminUsers,
                 onAdminVendorsClick = onNavigateToAdminVendors,
@@ -152,14 +182,18 @@ fun HomeScreen(
             )
             
             if (userRole == "admin") {
-                AdminActivityList(onSeeAllOrders = onNavigateToAdminOrders)
+                AdminActivityList(
+                    logs = uiState.systemLogs,
+                    onSeeAllOrders = onNavigateToAdminOrders
+                )
             } else {
                 ProductGrid(
                     products = uiState.recommendations,
                     favoriteProductIds = uiState.favoriteProductIds,
                     onFavoriteToggle = { viewModel.toggleFavorite(it.id) },
                     onAddToCart = { viewModel.addToCart(it) },
-                    onProductClick = { viewModel.setSelectedProduct(it) }
+                    onProductClick = { viewModel.setSelectedProduct(it) },
+                    isLoading = uiState.isLoading
                 )
             }
             
@@ -217,6 +251,34 @@ fun HomeScreen(
                 }
             }
         }
+
+        // Product Detail Bottom Sheet
+        if (uiState.selectedProduct != null) {
+            ModalBottomSheet(
+                onDismissRequest = { viewModel.setSelectedProduct(null) },
+                containerColor = Color.White,
+                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            ) {
+                ProductDetailContent(
+                    product = uiState.selectedProduct!!,
+                    isFavorite = uiState.favoriteProductIds.contains(uiState.selectedProduct!!.id),
+                    onFavoriteToggle = { viewModel.toggleFavorite(uiState.selectedProduct!!.id) },
+                    selectedSize = uiState.selectedSize,
+                    onSizeSelected = { viewModel.setSelectedSize(it) },
+                    selectedColor = uiState.selectedColor,
+                    onColorSelected = { viewModel.setSelectedColor(it) },
+                    onAddToCart = { 
+                        viewModel.addToCart(uiState.selectedProduct!!)
+                        viewModel.setSelectedProduct(null)
+                    },
+                    reviews = uiState.productReviews,
+                    isReviewsLoading = uiState.isReviewsLoading,
+                    onSubmitReview = { rating, comment ->
+                        viewModel.submitReview(uiState.selectedProduct!!.id, rating, comment)
+                    }
+                )
+            }
+        }
     }
 }
 
@@ -229,8 +291,15 @@ fun ProductDetailContent(
     onSizeSelected: (String) -> Unit,
     selectedColor: ProductColor?,
     onColorSelected: (ProductColor) -> Unit,
-    onAddToCart: () -> Unit
+    onAddToCart: () -> Unit,
+    reviews: List<Map<String, Any>> = emptyList(),
+    isReviewsLoading: Boolean = false,
+    onSubmitReview: (Int, String) -> Unit = { _, _ -> }
 ) {
+    var showReviewDialog by remember { mutableStateOf(false) }
+    var rating by remember { mutableStateOf(5) }
+    var comment by remember { mutableStateOf("") }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -262,7 +331,7 @@ fun ProductDetailContent(
                     Icon(
                         imageVector = when(product.category) {
                             "Equipment" -> Icons.Default.MedicalServices
-                            "Theatre Shoes" -> Icons.Default.IceSkating // Best fit for shoes in default icons
+                            "Theatre Shoes" -> Icons.Default.IceSkating
                             else -> Icons.Default.Checkroom
                         },
                         contentDescription = null,
@@ -284,6 +353,26 @@ fun ProductDetailContent(
                     contentDescription = "Favorite",
                     tint = if (isFavorite) Color(0xFFF43F5E) else Slate300
                 )
+            }
+
+            // 360 View Placeholder
+            Surface(
+                onClick = { /* Future: Open 360 viewer */ },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = Color.Black.copy(alpha = 0.6f),
+                contentColor = Color.White
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Refresh, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("360° View", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
             }
         }
 
@@ -434,7 +523,7 @@ fun ProductDetailContent(
 
         Spacer(Modifier.height(16.dp))
 
-        // Material & Features (Inspired by AlphaMed)
+        // Material & Features
         Text("Material", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Slate900)
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -472,7 +561,230 @@ fun ProductDetailContent(
             Text("Add to Cart", fontSize = 16.sp, fontWeight = FontWeight.Bold)
         }
         
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(32.dp))
+
+        // Reviews Section
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Customer Reviews", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Slate900)
+            TextButton(onClick = { showReviewDialog = true }) {
+                Text("Write Review", color = Brand600, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        if (isReviewsLoading) {
+            Box(Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = Brand600)
+            }
+        } else if (reviews.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 16.dp)
+                    .background(Slate50, RoundedCornerShape(16.dp))
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.RateReview, null, tint = Slate300, modifier = Modifier.size(48.dp))
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "No reviews yet",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Slate900
+                    )
+                    Text(
+                        "Be the first to review this product!",
+                        fontSize = 14.sp,
+                        color = Slate500,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        } else {
+            // Rating Summary
+            val ratingCounts = IntArray(5)
+            reviews.forEach {
+                val r = (it["rating"] as? Number)?.toInt() ?: 5
+                if (r in 1..5) ratingCounts[r - 1]++
+            }
+            val totalReviews = reviews.size
+            
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Slate50.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                    .padding(16.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    ) {
+                        Text(
+                            text = "%.1f".format(product.rating),
+                            fontSize = 36.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Slate900
+                        )
+                        Row {
+                            repeat(5) { index ->
+                                Icon(
+                                    Icons.Default.Star,
+                                    null,
+                                    modifier = Modifier.size(12.dp),
+                                    tint = if (index < product.rating.toInt()) Color(0xFFF59E0B) else Slate200
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Text("${product.reviewsCount} reviews", fontSize = 10.sp, color = Slate500)
+                    }
+                    
+                    VerticalDivider(modifier = Modifier.height(80.dp).padding(horizontal = 16.dp), color = Slate200)
+                    
+                    Column(modifier = Modifier.weight(1f)) {
+                        (5 downTo 1).forEach { star ->
+                            val count = ratingCounts[star - 1]
+                            val progress = if (totalReviews > 0) count.toFloat() / totalReviews else 0f
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(vertical = 1.dp)
+                            ) {
+                                Text(star.toString(), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Slate700, modifier = Modifier.width(10.dp))
+                                Spacer(Modifier.width(8.dp))
+                                LinearProgressIndicator(
+                                    progress = { progress },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(6.dp)
+                                        .clip(CircleShape),
+                                    color = Color(0xFFF59E0B),
+                                    trackColor = Slate200,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(count.toString(), fontSize = 10.sp, color = Slate500, modifier = Modifier.width(20.dp), textAlign = TextAlign.End)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+
+            reviews.forEach { review ->
+                val customerName = (review["profiles"] as? Map<*, *>)?.get("full_name")?.toString() ?: "Customer"
+                val reviewRating = (review["rating"] as? Number)?.toInt() ?: 5
+                val reviewComment = review["comment"]?.toString() ?: ""
+                val createdAt = review["created_at"]?.toString()?.split("T")?.firstOrNull() ?: "Recently"
+                
+                Column(modifier = Modifier.padding(vertical = 12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .background(Brand100, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    customerName.take(1).uppercase(),
+                                    fontWeight = FontWeight.Bold,
+                                    color = Brand700,
+                                    fontSize = 14.sp
+                                )
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(customerName, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Slate900)
+                                Row {
+                                    repeat(5) { index ->
+                                        Icon(
+                                            imageVector = Icons.Default.Star,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(10.dp),
+                                            tint = if (index < reviewRating) Color(0xFFF59E0B) else Slate200
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        Text(createdAt, fontSize = 12.sp, color = Slate400)
+                    }
+                    if (reviewComment.isNotEmpty()) {
+                        Text(
+                            reviewComment,
+                            fontSize = 14.sp,
+                            color = Slate600,
+                            modifier = Modifier.padding(top = 8.dp, start = 48.dp),
+                            lineHeight = 20.sp
+                        )
+                    }
+                    HorizontalDivider(color = Slate50, modifier = Modifier.padding(top = 16.dp))
+                }
+            }
+        }
+
+        Spacer(Modifier.height(40.dp))
+    }
+
+    if (showReviewDialog) {
+        AlertDialog(
+            onDismissRequest = { showReviewDialog = false },
+            title = { Text("Write a Review") },
+            text = {
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        repeat(5) { index ->
+                            IconButton(onClick = { rating = index + 1 }) {
+                                Icon(
+                                    imageVector = Icons.Default.Star,
+                                    contentDescription = null,
+                                    tint = if (index < rating) Color(0xFFF59E0B) else Slate200,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                            }
+                        }
+                    }
+                    OutlinedTextField(
+                        value = comment,
+                        onValueChange = { comment = it },
+                        label = { Text("Your comment (optional)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        maxLines = 3
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onSubmitReview(rating, comment)
+                        showReviewDialog = false
+                        comment = ""
+                        rating = 5
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Brand600)
+                ) {
+                    Text("Submit")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showReviewDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
@@ -663,7 +975,11 @@ fun CategorySelector(
 }
 
 @Composable
-fun VendorStats() {
+fun VendorStats(
+    orderCount: Int = 0,
+    lowStockCount: Int = 0,
+    rating: Double = 0.0
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -672,20 +988,22 @@ fun VendorStats() {
             .padding(24.dp)
     ) {
         Text("Your Shop Performance", color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp)
-        Text("KSh 142,500", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        Text("KSh ${orderCount * 5000}", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
         
         Spacer(Modifier.height(24.dp))
         
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            StatItem("Active Orders", "12", Icons.Default.Inventory)
-            StatItem("Low Stock", "3", Icons.Default.Warning)
-            StatItem("Reviews", "4.9", Icons.Default.Star)
+            StatItem("Active Orders", orderCount.toString(), Icons.Default.Inventory)
+            StatItem("Low Stock", lowStockCount.toString(), Icons.Default.Warning)
+            StatItem("Reviews", if (rating > 0) rating.toString() else "N/A", Icons.Default.Star)
         }
     }
 }
 
 @Composable
 fun AdminStats(
+    userCount: Int = 0,
+    pendingVendors: Int = 0,
     onInventoryClick: () -> Unit = {}
 ) {
     Column(
@@ -702,8 +1020,8 @@ fun AdminStats(
         Spacer(Modifier.height(24.dp))
         
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            StatItem("Total Users", "1,240", Icons.Default.People)
-            StatItem("Pending Vendors", "8", Icons.Default.PendingActions)
+            StatItem("Total Users", userCount.toString(), Icons.Default.People)
+            StatItem("Pending Vendors", pendingVendors.toString(), Icons.Default.PendingActions)
             StatItem("Revenue (M)", "2.4", Icons.Default.Payments)
         }
     }
@@ -711,6 +1029,7 @@ fun AdminStats(
 
 @Composable
 fun AdminActivityList(
+    logs: List<Map<String, Any>> = emptyList(),
     onSeeAllOrders: () -> Unit = {}
 ) {
     Column(
@@ -719,59 +1038,102 @@ fun AdminActivityList(
             .padding(horizontal = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        repeat(3) { index ->
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { if (index == 1) onSeeAllOrders() },
-                shape = RoundedCornerShape(16.dp),
-                color = Color.White,
-                border = BorderStroke(1.dp, Slate100)
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+        if (logs.isEmpty()) {
+            repeat(3) { index ->
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { if (index == 1) onSeeAllOrders() },
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color.White,
+                    border = BorderStroke(1.dp, Slate100)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .background(Brand50, CircleShape),
-                        contentAlignment = Alignment.Center
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = when(index) {
-                                0 -> Icons.Default.PersonAdd
-                                1 -> Icons.Default.ShoppingCart
-                                else -> Icons.Default.Report
-                            },
-                            contentDescription = null,
-                            tint = Brand600,
-                            modifier = Modifier.size(20.dp)
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(Brand50, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = when(index) {
+                                    0 -> Icons.Default.PersonAdd
+                                    1 -> Icons.Default.ShoppingCart
+                                    else -> Icons.Default.Report
+                                },
+                                contentDescription = null,
+                                tint = Brand600,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = when(index) {
+                                    0 -> "New Vendor Registration"
+                                    1 -> "High Value Order Placed"
+                                    else -> "System Update Complete"
+                                },
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Slate900
+                            )
+                            Text(
+                                text = when(index) {
+                                    0 -> "Elite Uniforms Ltd"
+                                    1 -> "Order #8921 - KSh 15,000"
+                                    else -> "v1.2.4 deployed successfully"
+                                },
+                                fontSize = 12.sp,
+                                color = Slate500
+                            )
+                        }
+                        Text("2m ago", fontSize = 10.sp, color = Slate400)
                     }
-                    Spacer(Modifier.width(16.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = when(index) {
-                                0 -> "New Vendor Registration"
-                                1 -> "High Value Order Placed"
-                                else -> "System Update Complete"
-                            },
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Slate900
-                        )
-                        Text(
-                            text = when(index) {
-                                0 -> "Elite Uniforms Ltd"
-                                1 -> "Order #8921 - KSh 15,000"
-                                else -> "v1.2.4 deployed successfully"
-                            },
-                            fontSize = 12.sp,
-                            color = Slate500
-                        )
+                }
+            }
+        } else {
+            logs.take(5).forEach { log ->
+                val action = log["action"] as? String ?: "System Action"
+                val details = log["details"] as? String ?: ""
+                
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color.White,
+                    border = BorderStroke(1.dp, Slate100)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(Brand50, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = when {
+                                    action.contains("Login", true) -> Icons.Default.Login
+                                    action.contains("Order", true) -> Icons.Default.ShoppingCart
+                                    action.contains("Vendor", true) -> Icons.Default.Store
+                                    else -> Icons.Default.History
+                                },
+                                contentDescription = null,
+                                tint = Brand600,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(action, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Slate900)
+                            Text(details, fontSize = 12.sp, color = Slate500, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     }
-                    Text("2m ago", fontSize = 10.sp, color = Slate400)
                 }
             }
         }
@@ -787,6 +1149,140 @@ fun StatItem(label: String, value: String, icon: ImageVector) {
             Text(label, color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
         }
         Text(value, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SizeQuizBottomSheet(onDismiss: () -> Unit, onComplete: (String) -> Unit) {
+    var step by remember { mutableStateOf(1) }
+    var height by remember { mutableStateOf("") }
+    var weight by remember { mutableStateOf("") }
+    var fitPreference by remember { mutableStateOf("Regular") }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Color.White,
+        dragHandle = { BottomSheetDefaults.DragHandle() }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp)
+                .padding(bottom = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "Step $step of 3",
+                style = MaterialTheme.typography.labelMedium,
+                color = Brand600
+            )
+            
+            Spacer(Modifier.height(8.dp))
+            
+            LinearProgressIndicator(
+                progress = { step / 3f },
+                modifier = Modifier.fillMaxWidth().height(4.dp),
+                color = Brand600,
+                trackColor = Brand100
+            )
+            
+            Spacer(Modifier.height(24.dp))
+            
+            when (step) {
+                1 -> {
+                    Text("What is your height?", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = height,
+                        onValueChange = { height = it },
+                        label = { Text("Height (cm)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
+                2 -> {
+                    Text("What is your weight?", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = weight,
+                        onValueChange = { weight = it },
+                        label = { Text("Weight (kg)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
+                3 -> {
+                    Text("Preferred Fit?", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(16.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                        listOf("Slim", "Regular", "Loose").forEach { fit ->
+                            FilterChip(
+                                selected = fitPreference == fit,
+                                onClick = { fitPreference = fit },
+                                label = { Text(fit) }
+                            )
+                        }
+                    }
+                }
+            }
+            
+            Spacer(Modifier.height(32.dp))
+            
+            Button(
+                onClick = {
+                    if (step < 3) step++ else onComplete("M") // Mock logic
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Brand600)
+            ) {
+                Text(if (step < 3) "Next" else "Find My Size")
+            }
+        }
+    }
+}
+
+@Composable
+fun SizeFinderCard(onStartQuiz: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 16.dp),
+        shape = RoundedCornerShape(24.dp),
+        color = Color.White,
+        border = BorderStroke(1.dp, Brand100),
+        shadowElevation = 2.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .background(Brand50, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Straighten, null, tint = Brand600, modifier = Modifier.size(28.dp))
+            }
+            
+            Spacer(Modifier.width(16.dp))
+            
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Find Your Perfect Fit", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Slate900)
+                Text("Take our 30-second size quiz", fontSize = 12.sp, color = Slate500)
+            }
+            
+            Button(
+                onClick = onStartQuiz,
+                colors = ButtonDefaults.buttonColors(containerColor = Brand600),
+                shape = RoundedCornerShape(12.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                Text("Start", fontWeight = FontWeight.Bold)
+            }
+        }
     }
 }
 
@@ -872,6 +1368,7 @@ fun QuickActions(
     userRole: String,
     onQuickReorderClick: () -> Unit,
     onFavoritesClick: () -> Unit,
+    onVendorAnalyticsClick: () -> Unit = {},
     onUserLogsClick: () -> Unit = {},
     onAdminUsersClick: () -> Unit = {},
     onAdminVendorsClick: () -> Unit = {},
@@ -941,9 +1438,19 @@ fun QuickActions(
                 icon = if (userRole == "vendor") Icons.Default.ChatBubble else Icons.Default.Autorenew,
                 bgColor = Color(0xFFEFF6FF),
                 iconColor = Color(0xFF60A5FA),
-                modifier = Modifier.weight(1f),
+                modifier = if (userRole == "vendor") Modifier.width(100.dp) else Modifier.weight(1f),
                 onClick = onQuickReorderClick
             )
+            if (userRole == "vendor") {
+                QuickActionCard(
+                    title = "Analytics",
+                    icon = Icons.Default.BarChart,
+                    bgColor = Color(0xFFF5F3FF),
+                    iconColor = Color(0xFF8B5CF6),
+                    modifier = Modifier.width(100.dp),
+                    onClick = onVendorAnalyticsClick
+                )
+            }
         }
     }
 }
@@ -1144,12 +1651,46 @@ fun NewArrivalCard(
 }
 
 @Composable
+fun ShimmerPlaceholder(
+    modifier: Modifier = Modifier,
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(12.dp)
+) {
+    val transition = rememberInfiniteTransition(label = "shimmer")
+    val translateAnim by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1000f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmer"
+    )
+
+    val brush = Brush.linearGradient(
+        colors = listOf(
+            Slate100,
+            Slate200,
+            Slate100
+        ),
+        start = Offset.Zero,
+        end = Offset(x = translateAnim, y = translateAnim)
+    )
+
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(brush)
+    )
+}
+
+@Composable
 fun ProductGrid(
     products: List<Product>,
     favoriteProductIds: Set<String> = emptySet(),
     onFavoriteToggle: (Product) -> Unit = {},
     onAddToCart: (Product) -> Unit = {},
-    onProductClick: (Product) -> Unit = {}
+    onProductClick: (Product) -> Unit = {},
+    isLoading: Boolean = false
 ) {
     BoxWithConstraints(
         modifier = Modifier.padding(horizontal = 24.dp)
@@ -1160,29 +1701,45 @@ fun ProductGrid(
             else -> 4
         }
         
-        val chunks = products.chunked(columns)
-        Column(
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            chunks.forEach { rowProducts ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    rowProducts.forEach { product ->
-                        ProductCard(
-                            product = product,
-                            isFavorite = favoriteProductIds.contains(product.id),
-                            modifier = Modifier.weight(1f),
-                            onFavoriteClick = { onFavoriteToggle(product) },
-                            onAddToCart = { onAddToCart(product) },
-                            onClick = { onProductClick(product) }
-                        )
+        if (isLoading && products.isEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                repeat(3) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        repeat(columns) {
+                            ShimmerPlaceholder(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(240.dp)
+                            )
+                        }
                     }
-                    // Fill empty spaces in the row to maintain alignment
-                    if (rowProducts.size < columns) {
-                        repeat(columns - rowProducts.size) {
-                            Spacer(Modifier.weight(1f))
+                }
+            }
+        } else {
+            val chunks = products.chunked(columns)
+            Column(
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                chunks.forEach { rowProducts ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        rowProducts.forEach { product ->
+                            ProductCard(
+                                product = product,
+                                isFavorite = favoriteProductIds.contains(product.id),
+                                modifier = Modifier.weight(1f),
+                                onFavoriteClick = { onFavoriteToggle(product) },
+                                onAddToCart = { onAddToCart(product) },
+                                onClick = { onProductClick(product) }
+                            )
+                        }
+                        // Fill empty spaces in the row to maintain alignment
+                        if (rowProducts.size < columns) {
+                            repeat(columns - rowProducts.size) {
+                                Spacer(Modifier.weight(1f))
+                            }
                         }
                     }
                 }
@@ -1336,6 +1893,22 @@ fun ProductCard(
                     fontSize = 10.sp,
                     color = Slate500
                 )
+                
+                if (product.inStock && product.reviewsCount < 5) {
+                    Spacer(Modifier.width(8.dp))
+                    Surface(
+                        color = Brand50,
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            "LOW STOCK",
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Brand600
+                        )
+                    }
+                }
             }
             
             Row(modifier = Modifier.padding(vertical = 4.dp)) {
