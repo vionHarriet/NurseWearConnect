@@ -48,7 +48,8 @@ class UserRepository(
             
             // Normalize role in the profile map
             if (profile != null) {
-                val normalizedRole = (profile["role"]?.toString() ?: "student").lowercase()
+                val cachedRole = securityManager.getUserRole()
+                val normalizedRole = (profile["role"]?.toString() ?: cachedRole ?: "student").lowercase()
                 profile = profile.toMutableMap().apply {
                     this["role"] = normalizedRole
                 }
@@ -58,7 +59,7 @@ class UserRepository(
             
             // Sync with SecurityManager cache
             profile?.let {
-                val role = it["role"]?.toString() ?: "student"
+                val role = it["role"]?.toString() ?: securityManager.getUserRole() ?: "student"
                 val name = it["full_name"]?.toString() ?: ""
                 securityManager.saveUserRole(role)
                 securityManager.saveUserName(name)
@@ -143,8 +144,13 @@ class UserRepository(
         val channel = supabaseClient.channel("messages_realtime")
         return channel.postgresChangeFlow<PostgresAction>(schema = "public") {
             table = "messages"
-            // Filter doesn't work directly in postgresChangeFlow for complex OR logic in some SDK versions,
-            // but we can filter the flow later or use a broader subscription.
+        }
+    }
+
+    fun getProfileRealtime(userId: String): Flow<PostgresAction> {
+        val channel = supabaseClient.channel("profile_realtime")
+        return channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+            table = "profiles"
         }
     }
 
@@ -152,7 +158,6 @@ class UserRepository(
         val channel = supabaseClient.channel("notifications_realtime")
         return channel.postgresChangeFlow<PostgresAction>(schema = "public") {
             table = "notifications"
-            // If filter is private or not accessible this way, we'll filter in the ViewModel
         }
     }
 

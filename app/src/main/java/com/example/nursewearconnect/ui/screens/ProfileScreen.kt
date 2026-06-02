@@ -179,6 +179,18 @@ fun ProfileScreen(innerPadding: PaddingValues, viewModel: HomeViewModel) {
                 
                 PersonalInfoSection(fullName, email, phoneNumber, address, onEditClick = { showEditDialog = true })
                 
+                if (uiState.userRole == "admin") {
+                    AdminQuickActionsSection(
+                        onApproveVendors = { 
+                            // In a real app, use a NavController. Here we'll trigger a callback if needed
+                            // For this context, we assume navigation is handled via state or specific triggers
+                        },
+                        onViewLogs = {
+                            // Example trigger for logs
+                        }
+                    )
+                }
+                
                 if (uiState.userRole == "student" || uiState.userRole == "professional") {
                     MeasurementsSection(bust, waist, hips, onEditClick = { showMeasurementsDialog = true })
                     QuickReorderSection()
@@ -361,6 +373,35 @@ fun PersonalInfoSection(fullName: String, email: String, phoneNumber: String, ad
                 InfoRow("PHONE", phoneNumber)
                 InfoRow("DELIVERY ADDRESS", address)
             }
+        }
+    }
+}
+
+@Composable
+fun AdminQuickActionsSection(onApproveVendors: () -> Unit, onViewLogs: () -> Unit) {
+    Surface(shape = RoundedCornerShape(16.dp), color = Color.White, border = BorderStroke(1.dp, Brand100)) {
+        Column {
+            Text("Admin Quick Actions", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Slate900, modifier = Modifier.padding(16.dp))
+            HorizontalDivider(color = Slate100)
+            Row(modifier = Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                AdminActionCard("Approvals", "✓", Brand50, Brand600, Modifier.weight(1f), onClick = onApproveVendors)
+                AdminActionCard("System Logs", "📋", Slate50, Slate600, Modifier.weight(1f), onClick = onViewLogs)
+            }
+        }
+    }
+}
+
+@Composable
+fun AdminActionCard(label: String, icon: String, bg: Color, tint: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Surface(
+        modifier = modifier.clickable { onClick() },
+        shape = RoundedCornerShape(12.dp),
+        color = bg,
+        border = BorderStroke(1.dp, bg.copy(alpha = 0.5f))
+    ) {
+        Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(icon, fontSize = 20.sp)
+            Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = tint)
         }
     }
 }

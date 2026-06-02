@@ -2,42 +2,55 @@ package com.example.nursewearconnect.data.repository
 
 import com.example.nursewearconnect.data.api.ApiService
 import com.example.nursewearconnect.model.Product
+import com.example.nursewearconnect.data.repository.AdminRepository
 
-class VendorRepository(private val apiService: ApiService) {
+class VendorRepository(
+    private val apiService: ApiService,
+    private val adminRepository: AdminRepository
+) {
 
     suspend fun getVendorProducts(vendorId: String): Result<List<Product>> {
         return try {
             val products = apiService.getVendorProducts("eq.$vendorId")
             Result.success(products)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(Exception(com.example.nursewearconnect.utils.AppUtils.mapThrowable(e)))
         }
     }
 
     suspend fun addProduct(product: Product): Result<Product> {
         return try {
             val added = apiService.addProduct(product)
+            product.vendor_id?.let {
+                adminRepository.logAction(it, "ADD_PRODUCT", "Vendor added product: ${product.name}")
+            }
             Result.success(added)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(Exception(com.example.nursewearconnect.utils.AppUtils.mapThrowable(e)))
         }
     }
 
     suspend fun updateProduct(product: Product): Result<Product> {
         return try {
             val updated = apiService.updateProduct("eq.${product.id}", product)
+            product.vendor_id?.let {
+                adminRepository.logAction(it, "UPDATE_PRODUCT", "Vendor updated product: ${product.name}")
+            }
             Result.success(updated)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(Exception(com.example.nursewearconnect.utils.AppUtils.mapThrowable(e)))
         }
     }
 
-    suspend fun deleteProduct(productId: String): Result<Unit> {
+    suspend fun deleteProduct(productId: String, vendorId: String? = null): Result<Unit> {
         return try {
             apiService.deleteProduct("eq.$productId")
+            vendorId?.let {
+                adminRepository.logAction(it, "DELETE_PRODUCT", "Vendor deleted product ID: $productId")
+            }
             Result.success(Unit)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(Exception(com.example.nursewearconnect.utils.AppUtils.mapThrowable(e)))
         }
     }
 
@@ -46,16 +59,40 @@ class VendorRepository(private val apiService: ApiService) {
             val orders = apiService.getVendorOrders("eq.$vendorId")
             Result.success(orders)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(Exception(com.example.nursewearconnect.utils.AppUtils.mapThrowable(e)))
         }
     }
 
-    suspend fun updateOrderStatus(orderId: String, status: String): Result<Unit> {
+    suspend fun updateOrderStatus(orderId: String, status: String, vendorId: String? = null): Result<Unit> {
         return try {
             apiService.updateOrderStatus("eq.$orderId", mapOf("status" to status))
+            
+            vendorId?.let {
+                adminRepository.logAction(it, "UPDATE_ORDER_STATUS", "Vendor updated order $orderId to $status")
+            }
+
+            // Social Proof Trigger: Prompt for review if delivered
+            if (status.lowercase() == "delivered") {
+                try {
+                    // Fetch order to get user_id
+                    val orderResult = apiService.getAllOrders().find { it["id"] == orderId }
+                    val userId = orderResult?.get("user_id")?.toString()
+                    if (userId != null) {
+                        apiService.createNotification(mapOf(
+                            "user_id" to userId,
+                            "title" to "Rate your purchase!",
+                            "content" to "Your order #$orderId has been delivered. Tell us what you think and help other nurses!",
+                            "type" to "REVIEW_PROMPT"
+                        ))
+                    }
+                } catch (e: Exception) {
+                    // Non-critical
+                }
+            }
+
             Result.success(Unit)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(Exception(com.example.nursewearconnect.utils.AppUtils.mapThrowable(e)))
         }
     }
 }

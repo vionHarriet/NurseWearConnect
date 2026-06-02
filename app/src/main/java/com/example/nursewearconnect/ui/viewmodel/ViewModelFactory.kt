@@ -14,6 +14,9 @@ class ViewModelFactory(private val application: NurseWearApplication) : ViewMode
             modelClass.isAssignableFrom(RegistrationViewModel::class.java) -> {
                 RegistrationViewModel(application.authRepository) as T
             }
+            modelClass.isAssignableFrom(RecoveryViewModel::class.java) -> {
+                RecoveryViewModel(application.authRepository) as T
+            }
             modelClass.isAssignableFrom(HomeViewModel::class.java) -> {
                 HomeViewModel(
                     application.productRepository, 
@@ -22,7 +25,8 @@ class ViewModelFactory(private val application: NurseWearApplication) : ViewMode
                     application.paymentRepository,
                     application.userRepository,
                     application.vendorRepository,
-                    application.adminRepository
+                    application.adminRepository,
+                    application.authRepository
                 ) as T
             }
             // Add more ViewModels as needed

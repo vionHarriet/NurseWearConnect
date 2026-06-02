@@ -28,6 +28,84 @@ fun AdminVendorApprovalsScreen(
     viewModel: HomeViewModel
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    var showRejectDialog by remember { mutableStateOf<String?>(null) }
+    var showCorrectionDialog by remember { mutableStateOf<String?>(null) }
+    var actionNotes by remember { mutableStateOf("") }
+
+    if (showRejectDialog != null) {
+        AlertDialog(
+            onDismissRequest = { showRejectDialog = null; actionNotes = "" },
+            title = { Text("Reject Vendor") },
+            text = {
+                Column {
+                    Text("Are you sure you want to reject this vendor? This is a permanent action.")
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = actionNotes,
+                        onValueChange = { actionNotes = it },
+                        label = { Text("Rejection Reason") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 3
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.rejectVendor(showRejectDialog!!, actionNotes)
+                        showRejectDialog = null
+                        actionNotes = ""
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+                ) {
+                    Text("Confirm Rejection")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRejectDialog = null; actionNotes = "" }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showCorrectionDialog != null) {
+        AlertDialog(
+            onDismissRequest = { showCorrectionDialog = null; actionNotes = "" },
+            title = { Text("Request Corrections") },
+            text = {
+                Column {
+                    Text("Provide feedback to the vendor on what needs to be corrected in their application.")
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = actionNotes,
+                        onValueChange = { actionNotes = it },
+                        label = { Text("Correction Instructions") },
+                        placeholder = { Text("e.g. Please upload a clearer copy of your business permit.") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 3
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.rejectVendor(showCorrectionDialog!!, actionNotes)
+                        showCorrectionDialog = null
+                        actionNotes = ""
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Brand600)
+                ) {
+                    Text("Send Feedback")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCorrectionDialog = null; actionNotes = "" }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -67,12 +145,14 @@ fun AdminVendorApprovalsScreen(
                     id = vendorMap["id"]?.toString() ?: "0",
                     businessName = vendorMap["business_name"]?.toString() ?: vendorMap["full_name"]?.toString() ?: "Unknown",
                     email = vendorMap["email"]?.toString() ?: "No Email",
-                    description = vendorMap["bio"]?.toString() ?: vendorMap["description"]?.toString() ?: "No Description",
-                    dateJoined = vendorMap["created_at"]?.toString() ?: "N/A"
+                    description = vendorMap["business_description"]?.toString() ?: vendorMap["bio"]?.toString() ?: "No Description",
+                    dateJoined = vendorMap["created_at"]?.toString() ?: "N/A",
+                    status = vendorMap["status"]?.toString() ?: "pending"
                 )
                 VendorApprovalCard(vendor, 
                     onApprove = { viewModel.approveVendor(vendor.id) },
-                    onReject = { viewModel.rejectVendor(vendor.id) }
+                    onReject = { showRejectDialog = vendor.id },
+                    onCorrection = { showCorrectionDialog = vendor.id }
                 )
             }
         }
@@ -80,7 +160,12 @@ fun AdminVendorApprovalsScreen(
 }
 
 @Composable
-fun VendorApprovalCard(vendor: PendingVendor, onApprove: () -> Unit, onReject: () -> Unit) {
+fun VendorApprovalCard(
+    vendor: PendingVendor, 
+    onApprove: () -> Unit, 
+    onReject: () -> Unit,
+    onCorrection: () -> Unit
+) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
@@ -104,16 +189,20 @@ fun VendorApprovalCard(vendor: PendingVendor, onApprove: () -> Unit, onReject: (
                     Text(vendor.businessName, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Slate900)
                     Text(vendor.email, fontSize = 12.sp, color = Slate500)
                 }
+                
+                val statusColor = if (vendor.status == "rejected") Color(0xFFEF4444) else Color(0xFFC2410C)
+                val statusBg = if (vendor.status == "rejected") Color(0xFFFEF2F2) else Color(0xFFFFF7ED)
+                
                 Surface(
-                    color = Color(0xFFFFF7ED),
+                    color = statusBg,
                     shape = RoundedCornerShape(99.dp)
                 ) {
                     Text(
-                        "Reviewing",
+                        vendor.status.replaceFirstChar { it.uppercase() },
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFFC2410C)
+                        color = statusColor
                     )
                 }
             }
@@ -123,24 +212,34 @@ fun VendorApprovalCard(vendor: PendingVendor, onApprove: () -> Unit, onReject: (
             Text("Business Description", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Slate400)
             Text(vendor.description, fontSize = 13.sp, color = Slate700, lineHeight = 18.sp)
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
                     onClick = onApprove,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1.2f),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Brand600)
                 ) {
                     Text("Approve", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
+                
                 OutlinedButton(
-                    onClick = onReject,
+                    onClick = onCorrection,
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, Color(0xFFFCA5A5))
+                    border = BorderStroke(1.dp, Brand200)
                 ) {
-                    Text("Reject", color = Color(0xFFEF4444), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text("Correction", color = Brand700, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+
+                IconButton(
+                    onClick = onReject,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(Color(0xFFFEF2F2), RoundedCornerShape(12.dp))
+                ) {
+                    Icon(Icons.Default.DeleteOutline, contentDescription = "Reject", tint = Color(0xFFEF4444))
                 }
             }
             
@@ -164,5 +263,6 @@ data class PendingVendor(
     val businessName: String,
     val email: String,
     val description: String,
-    val dateJoined: String
+    val dateJoined: String,
+    val status: String = "pending"
 )

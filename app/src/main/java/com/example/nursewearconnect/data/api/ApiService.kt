@@ -114,12 +114,36 @@ interface ApiService {
     @PATCH("rest/v1/orders")
     suspend fun updateOrderStatus(@Query("id") filter: String, @Body status: Map<String, String>): Map<String, Any>
 
-    // Admin Operations
-    @GET("rest/v1/orders?select=*,profiles(full_name),order_items(*,products(name))")
-    suspend fun getAllOrders(): List<Map<String, Any>>
+    // Payouts
+    @GET("rest/v1/payouts?select=*,profiles:vendor_id(full_name,business_name)")
+    suspend fun getPayouts(): List<Map<String, Any>>
+
+    @POST("rest/v1/payouts")
+    suspend fun createPayout(@Body payoutData: Map<String, Any>): Map<String, Any>
+
+    @PATCH("rest/v1/payouts")
+    suspend fun updatePayoutStatus(@Query("id") filter: String, @Body status: Map<String, String>): Map<String, Any>
+
+    @GET("rest/v1/orders?select=*,profiles(full_name),order_items(*,products(name,vendor_id))")
+    suspend fun getAllOrders(
+        @Query("status") status: String? = null,
+        @Query("created_at") gteDate: String? = null,
+        @Query("created_at") lteDate: String? = null,
+        @Query("id") idSearch: String? = null,
+        @Query("limit") limit: Int? = null,
+        @Query("offset") offset: Int? = null,
+        @Query("order") order: String = "created_at.desc"
+    ): List<Map<String, Any>>
 
     @GET("rest/v1/system_logs?select=*,profiles(full_name)")
-    suspend fun getSystemLogs(): List<Map<String, Any>>
+    suspend fun getSystemLogs(
+        @Query("action") action: String? = null,
+        @Query("created_at") gteDate: String? = null,
+        @Query("created_at") lteDate: String? = null,
+        @Query("limit") limit: Int? = null,
+        @Query("offset") offset: Int? = null,
+        @Query("order") order: String = "created_at.desc"
+    ): List<Map<String, Any>>
 
     @DELETE("rest/v1/system_logs")
     suspend fun clearSystemLogs(@Query("id") filter: String = "neq.0"): Map<String, String>

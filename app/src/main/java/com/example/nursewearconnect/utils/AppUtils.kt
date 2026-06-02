@@ -118,6 +118,27 @@ object AppUtils {
     }
 
     /**
+     * Checks if a Supabase timestamp string is within a given date range.
+     */
+    fun isDateInRange(dateStr: String?, start: Long?, end: Long?): Boolean {
+        if (dateStr == null) return false
+        if (start == null && end == null) return true
+        return try {
+            // Supabase format: 2023-10-27T10:00:00+00:00
+            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+            val date = sdf.parse(dateStr.split("T")[0])?.time ?: return true
+            
+            // Normalize start and end to start of day if they aren't already
+            // but usually DateRangePicker gives start of day UTC or local.
+            val startMatch = start == null || date >= start
+            val endMatch = end == null || date <= end
+            startMatch && endMatch
+        } catch (e: Exception) {
+            true
+        }
+    }
+
+    /**
      * Error Mapping: Converts technical exceptions to user-friendly messages.
      * This method is designed to be idempotent; if it receives an already mapped
      * friendly message, it will return it as is.

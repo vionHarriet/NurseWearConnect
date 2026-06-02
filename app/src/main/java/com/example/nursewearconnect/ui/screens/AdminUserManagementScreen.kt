@@ -122,7 +122,7 @@ fun AdminUserManagementScreen(
             ) {
                 val filteredUsers = allUsers.filter { 
                     val role = it["role"]?.toString() ?: ""
-                    val name = it["name"]?.toString() ?: ""
+                    val name = it["full_name"]?.toString() ?: ""
                     val email = it["email"]?.toString() ?: ""
                     
                     role.lowercase() == tabs[selectedTab].lowercase().removeSuffix("s") &&
@@ -132,7 +132,7 @@ fun AdminUserManagementScreen(
                 items(filteredUsers) { userMap ->
                     val user = AdminUserItem(
                         id = userMap["id"]?.toString() ?: "",
-                        name = userMap["name"]?.toString() ?: "Unknown",
+                        name = userMap["full_name"]?.toString() ?: "Unknown",
                         email = userMap["email"]?.toString() ?: "",
                         role = userMap["role"]?.toString() ?: "",
                         status = userMap["status"]?.toString() ?: "active",
@@ -169,18 +169,18 @@ fun UserManagementCard(user: AdminUserItem) {
             Surface(
                 modifier = Modifier.size(48.dp),
                 shape = CircleShape,
-                color = when(user.status) {
-                    "Active" -> Brand50
-                    "Pending" -> Color(0xFFFEF3C7)
+                color = when(user.status.lowercase()) {
+                    "active" -> Brand50
+                    "pending" -> Color(0xFFFEF3C7)
                     else -> Color(0xFFFEE2E2)
                 }
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(
                         user.name.take(1).uppercase(),
-                        color = when(user.status) {
-                            "Active" -> Brand600
-                            "Pending" -> Color(0xFFD97706)
+                        color = when(user.status.lowercase()) {
+                            "active" -> Brand600
+                            "pending" -> Color(0xFFD97706)
                             else -> Color(0xFFDC2626)
                         },
                         fontWeight = FontWeight.Bold
@@ -202,20 +202,20 @@ fun UserManagementCard(user: AdminUserItem) {
                     // Status Badge
                     Surface(
                         shape = RoundedCornerShape(4.dp),
-                        color = when(user.status) {
-                            "Active" -> Color(0xFFECFDF5)
-                            "Pending" -> Color(0xFFFFFBEB)
+                        color = when(user.status.lowercase()) {
+                            "active" -> Color(0xFFECFDF5)
+                            "pending" -> Color(0xFFFFFBEB)
                             else -> Color(0xFFFEF2F2)
                         }
                     ) {
                         Text(
-                            user.status,
+                            user.status.uppercase(),
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
-                            color = when(user.status) {
-                                "Active" -> Color(0xFF059669)
-                                "Pending" -> Color(0xFFD97706)
+                            color = when(user.status.lowercase()) {
+                                "active" -> Color(0xFF059669)
+                                "pending" -> Color(0xFFD97706)
                                 else -> Color(0xFFDC2626)
                             }
                         )

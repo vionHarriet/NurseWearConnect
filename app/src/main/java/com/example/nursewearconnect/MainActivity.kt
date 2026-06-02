@@ -325,12 +325,20 @@ fun NurseWearConnectApp(showBiometricPrompt: (() -> Unit) -> Unit) {
                                         viewModel = homeViewModel,
                                         onNavigateToCatalog = { currentDestination = AppDestinations.CATALOG }
                                     )
-                                    AppDestinations.ORDERS -> OrdersScreen(
-                                        innerPadding = innerPadding,
-                                        viewModel = homeViewModel,
-                                        onNavigateToNotifications = { currentScreen = Screen.NOTIFICATIONS },
-                                        onSupportClick = { currentScreen = Screen.MESSAGES }
-                                    )
+                                    AppDestinations.ORDERS -> {
+                                        if (homeUiState.userRole == "admin") {
+                                            AdminOrderManagementScreen(
+                                                viewModel = homeViewModel
+                                            )
+                                        } else {
+                                            OrdersScreen(
+                                                innerPadding = innerPadding,
+                                                viewModel = homeViewModel,
+                                                onNavigateToNotifications = { currentScreen = Screen.NOTIFICATIONS },
+                                                onSupportClick = { currentScreen = Screen.MESSAGES }
+                                            )
+                                        }
+                                    }
                                     AppDestinations.PROFILE -> ProfileScreen(innerPadding, homeViewModel)
                                 }
                             }

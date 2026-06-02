@@ -64,10 +64,15 @@ data class HomeUiState(
     val vendorProducts: List<Product> = emptyList(),
     val vendorOrders: List<Map<String, Any>> = emptyList(),
     val allOrders: List<Map<String, Any>> = emptyList(),
+    val adminFilteredOrders: List<Map<String, Any>> = emptyList(),
+    val isAdminOrdersLoading: Boolean = false,
+    val adminOrdersPage: Int = 0,
+    val adminOrdersHasMore: Boolean = true,
     val pendingVendors: List<Map<String, Any>> = emptyList(),
     val coupons: List<Map<String, Any>> = emptyList(),
     val banners: List<Map<String, Any>> = emptyList(),
     val systemLogs: List<Map<String, Any>> = emptyList(),
+    val payouts: List<Map<String, Any>> = emptyList(),
     val notifications: List<Map<String, Any>> = emptyList(),
     val messages: List<Map<String, Any>> = emptyList(),
     val productReviews: List<Map<String, Any>> = emptyList(),
@@ -134,15 +139,10 @@ class HomeViewModel(
     private fun startRealtimeUpdates() {
         val userId = userRepository.getUserId() ?: return
         
-        // Listen for message changes
+        // Listen for profile updates
         viewModelScope.launch {
-            userRepository.getMessagesRealtime(userId).collect { action ->
-                // Reload messages on any change to keep it simple and consistent
-                val messages = userRepository.getMessages(userId)
-                _uiState.update { it.copy(
-                    messages = messages,
-                    unreadMessagesCount = messages.count { m -> !(m["isRead"] as? Boolean ?: true) }
-                ) }
+            userRepository.getProfileRealtime(userId).collect { action ->
+                userRepository.fetchProfile(userId)
             }
         }
 
@@ -152,7 +152,19 @@ class HomeViewModel(
                 val notifications = userRepository.getNotifications(userId)
                 _uiState.update { it.copy(
                     notifications = notifications,
-                    unreadNotificationsCount = notifications.count { n -> !(n["isRead"] as? Boolean ?: true) }
+                    unreadNotificationsCount = notifications.count { n -> !(n["is_read"] as? Boolean ?: true) }
+                ) }
+            }
+        }
+
+        // Listen for message changes
+        viewModelScope.launch {
+            userRepository.getMessagesRealtime(userId).collect { action ->
+                // Reload messages on any change to keep it simple and consistent
+                val messages = userRepository.getMessages(userId)
+                _uiState.update { it.copy(
+                    messages = messages,
+                    unreadMessagesCount = messages.count { m -> !(m["is_read"] as? Boolean ?: true) }
                 ) }
             }
         }
@@ -557,19 +569,156 @@ class HomeViewModel(
     fun loadAdminData() {
         viewModelScope.launch {
             try {
+                _uiState.update { it.copy(isLoading = true) }
                 val pendingResult = adminRepository.getPendingVendors()
-                val logsResult = adminRepository.getSystemLogs()
                 val usersResult = adminRepository.getAllUsers()
-                val ordersResult = adminRepository.getAllOrders()
+                val payoutsResult = adminRepository.getPayouts()
                 
+                // Fetch initial orders and logs without heavy filters for the overview/financials
+                val ordersResult = adminRepository.getAllOrders(limit = 200) 
+                val logsResult = adminRepository.getSystemLogs(limit = 50)
+
                 _uiState.update { it.copy(
                     pendingVendors = pendingResult.getOrDefault(emptyList()),
+                    allOrders = ordersResult.getOrDefault(emptyList()),
+                    payouts = payoutsResult.getOrDefault(emptyList()),
                     systemLogs = logsResult.getOrDefault(emptyList()),
-                    allOrders = ordersResult.getOrDefault(emptyList())
+                    isLoading = false
                 ) }
                 _allUsers.value = usersResult.getOrDefault(emptyList())
             } catch (e: Exception) {
-                _uiState.update { it.copy(error = "Failed to load admin dashboard") }
+                _uiState.update { it.copy(error = "Failed to load admin dashboard", isLoading = false) }
+            }
+        }
+    }
+
+    fun fetchAdminOrders(
+        status: String? = null,
+        startDate: String? = null,
+        endDate: String? = null,
+        searchQuery: String? = null,
+        page: Int = 0,
+        append: Boolean = false
+    ) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isAdminOrdersLoading = true) }
+            val limit = 20
+            val offset = page * limit
+            val result = adminRepository.getAllOrders(
+                status = status,
+                startDate = startDate,
+                endDate = endDate,
+                searchQuery = searchQuery,
+                limit = limit,
+                offset = offset
+            )
+            
+            result.onSuccess { orders ->
+                _uiState.update { state ->
+                    state.copy(
+                        adminFilteredOrders = if (append) state.adminFilteredOrders + orders else orders,
+                        adminOrdersPage = page,
+                        adminOrdersHasMore = orders.size == limit,
+                        isAdminOrdersLoading = false
+                    )
+                }
+            }
+            result.onFailure {
+                _uiState.update { it.copy(isAdminOrdersLoading = false) }
+            }
+        }
+    }
+
+    fun fetchSystemLogs(
+        startDate: String? = null,
+        endDate: String? = null,
+        page: Int = 0,
+        append: Boolean = false
+    ) {
+        viewModelScope.launch {
+            val limit = 50
+            val offset = page * limit
+            val result = adminRepository.getSystemLogs(
+                startDate = startDate,
+                endDate = endDate,
+                limit = limit,
+                offset = offset
+            )
+            
+            result.onSuccess { logs ->
+                _uiState.update { state ->
+                    state.copy(
+                        systemLogs = if (append) state.systemLogs + logs else logs
+                    )
+                }
+            }
+        }
+    }
+
+    fun scheduleAutomatedPayouts() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            val adminId = userRepository.getUserId() ?: "unknown"
+            
+            // Logic: Calculate balance for each vendor and create payouts for those > 0
+            val allOrders = _uiState.value.allOrders
+            val allPayouts = _uiState.value.payouts
+            val vendors = _allUsers.value.filter { it["role"] == "vendor" }
+            
+            var createdCount = 0
+            vendors.forEach { vendor ->
+                val vendorId = vendor["id"].toString()
+                val commissionRate = (vendor["commission_rate"] as? Number)?.toDouble() ?: 10.0
+                
+                // Calculate earned
+                val earned = allOrders.filter { 
+                    it["status"]?.toString()?.lowercase() == "delivered" 
+                }.flatMap { 
+                    (it["order_items"] as? List<*>)?.filterIsInstance<Map<String, Any>>() ?: emptyList()
+                }.filter { 
+                    (it["products"] as? Map<*, *>)?.get("vendor_id") == vendorId 
+                }.sumOf { 
+                    val price = (it["price_at_purchase"] as? Number)?.toDouble() ?: 0.0
+                    val qty = (it["quantity"] as? Number)?.toInt() ?: 1
+                    (price * qty) * (1 - (commissionRate / 100.0))
+                }
+                
+                // Calculate already paid/pending
+                val disbursed = allPayouts.filter { 
+                    it["vendor_id"] == vendorId && it["status"] != "failed" 
+                }.sumOf { (it["amount"] as? Number)?.toDouble() ?: 0.0 }
+                
+                val balance = earned - disbursed
+                if (balance >= 500) { // Minimum payout threshold KSh 500
+                    adminRepository.createPayout(vendorId, balance.toInt(), adminId)
+                    createdCount++
+                }
+            }
+            
+            _uiState.update { it.copy(
+                isLoading = false, 
+                successMessage = "Scheduled $createdCount automated payouts."
+            ) }
+            loadAdminData()
+        }
+    }
+
+    fun updatePayoutStatus(payoutId: String, status: String, reference: String? = null) {
+        viewModelScope.launch {
+            val adminId = userRepository.getUserId() ?: "unknown"
+            val result = adminRepository.updatePayoutStatus(payoutId, status, reference, adminId)
+            if (result.isSuccess) {
+                loadAdminData()
+            }
+        }
+    }
+
+    fun createPayout(vendorId: String, amount: Int) {
+        viewModelScope.launch {
+            val adminId = userRepository.getUserId() ?: "unknown"
+            val result = adminRepository.createPayout(vendorId, amount, adminId)
+            if (result.isSuccess) {
+                loadAdminData()
             }
         }
     }
