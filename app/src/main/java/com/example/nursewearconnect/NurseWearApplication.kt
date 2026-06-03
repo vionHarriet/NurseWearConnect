@@ -71,6 +71,6 @@ class NurseWearApplication : Application() {
     }
 
     val vendorRepository: VendorRepository by lazy {
-        VendorRepository(apiService, adminRepository)
+        VendorRepository(apiService, adminRepository, supabaseClient)
     }
 }

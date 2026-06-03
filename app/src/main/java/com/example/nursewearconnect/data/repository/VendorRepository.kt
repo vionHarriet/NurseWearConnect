@@ -3,11 +3,31 @@ package com.example.nursewearconnect.data.repository
 import com.example.nursewearconnect.data.api.ApiService
 import com.example.nursewearconnect.model.Product
 import com.example.nursewearconnect.data.repository.AdminRepository
+import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.postgresChangeFlow
+import kotlinx.coroutines.flow.Flow
 
 class VendorRepository(
     private val apiService: ApiService,
-    private val adminRepository: AdminRepository
+    private val adminRepository: AdminRepository,
+    private val supabaseClient: SupabaseClient
 ) {
+
+    fun getVendorProductsRealtime(vendorId: String): Flow<PostgresAction> {
+        val channel = supabaseClient.channel("vendor_products_$vendorId")
+        return channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+            table = "products"
+        }
+    }
+
+    fun getVendorOrdersRealtime(vendorId: String): Flow<PostgresAction> {
+        val channel = supabaseClient.channel("vendor_orders_$vendorId")
+        return channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+            table = "orders"
+        }
+    }
 
     suspend fun getVendorProducts(vendorId: String): Result<List<Product>> {
         return try {

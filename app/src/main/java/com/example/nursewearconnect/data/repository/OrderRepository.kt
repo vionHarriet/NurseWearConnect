@@ -53,6 +53,16 @@ class OrderRepository(private val apiService: ApiService) {
             val response = apiService.createOrder(orderData)
             val orderId = response["id"]?.toString() ?: "unknown_order_id"
             
+            // Audit Log: Order Created
+            try {
+                apiService.logAction(mapOf(
+                    "user_id" to userId,
+                    "action" to "ORDER_CREATED",
+                    "details" to "Order #$orderId created for KES $finalAmount",
+                    "severity" to "info"
+                ))
+            } catch (e: Exception) {}
+            
             // Insert order items
             cartItems.forEach { item ->
                 val itemData = mapOf(

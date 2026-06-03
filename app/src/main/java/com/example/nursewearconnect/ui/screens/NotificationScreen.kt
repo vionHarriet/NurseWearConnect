@@ -56,13 +56,6 @@ fun NotificationScreen(onBackClick: () -> Unit, viewModel: HomeViewModel) {
             },
             isRead = notifMap["isRead"] as? Boolean ?: false
         )
-    }.ifEmpty {
-        listOf(
-            NotificationItem(1, "Order Shipped", "Your order #NW1234 has been shipped and is on its way. Estimated delivery: Tomorrow by 5 PM.", "2m ago", NotificationType.ORDER),
-            NotificationItem(2, "Flash Sale!", "Get 20% off on all scrub sets this weekend only. Use code NURSE20 at checkout.", "1h ago", NotificationType.PROMO),
-            NotificationItem(3, "Account Verified", "Your vendor profile has been successfully verified. You can now start listing your products in the catalog.", "3h ago", NotificationType.SYSTEM, true),
-            NotificationItem(4, "New Message", "You have a new message from Elite Scrubs Support regarding your custom order.", "5h ago", NotificationType.SYSTEM, true)
-        )
     }
 
     if (selectedNotification != null) {

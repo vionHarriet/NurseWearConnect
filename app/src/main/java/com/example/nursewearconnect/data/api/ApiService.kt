@@ -58,7 +58,7 @@ interface ApiService {
     @POST("rest/v1/order_items")
     suspend fun createOrderItem(@Body itemData: Map<String, Any>): Map<String, Any>
 
-    @GET("rest/v1/orders?select=*,profiles(full_name)")
+    @GET("rest/v1/orders?select=*,profiles!orders_user_id_fkey(full_name)")
     suspend fun getUserOrders(@Query("user_id") filter: String): List<Map<String, Any>>
 
     // Payment (These might need a separate Edge Function or external service)
@@ -76,7 +76,7 @@ interface ApiService {
     suspend fun getAllProfiles(): List<Map<String, Any>>
 
     @PATCH("rest/v1/profiles")
-    suspend fun updateProfile(@Query("id") userId: String, @Body data: Map<String, Any>)
+    suspend fun updateProfile(@Query("id") filter: String, @Body data: Map<String, Any>): List<Map<String, Any>>
 
     @GET("rest/v1/profiles?status=eq.pending&role=eq.vendor")
     suspend fun getPendingVendors(): List<Map<String, Any>>
@@ -108,7 +108,7 @@ interface ApiService {
     @DELETE("rest/v1/products")
     suspend fun deleteProduct(@Query("id") id: String): Map<String, String>
 
-    @GET("rest/v1/orders?select=*,profiles(full_name),order_items(*,products(name))")
+    @GET("rest/v1/orders?select=*,profiles!orders_user_id_fkey(full_name),order_items(*,products(name))")
     suspend fun getVendorOrders(@Query("vendor_id") filter: String): List<Map<String, Any>>
 
     @PATCH("rest/v1/orders")
@@ -124,7 +124,7 @@ interface ApiService {
     @PATCH("rest/v1/payouts")
     suspend fun updatePayoutStatus(@Query("id") filter: String, @Body status: Map<String, String>): Map<String, Any>
 
-    @GET("rest/v1/orders?select=*,profiles(full_name),order_items(*,products(name,vendor_id))")
+    @GET("rest/v1/orders?select=*,profiles!orders_user_id_fkey(full_name),order_items(*,products(name,vendor_id))")
     suspend fun getAllOrders(
         @Query("status") status: String? = null,
         @Query("created_at") gteDate: String? = null,
@@ -135,7 +135,7 @@ interface ApiService {
         @Query("order") order: String = "created_at.desc"
     ): List<Map<String, Any>>
 
-    @GET("rest/v1/system_logs?select=*,profiles(full_name)")
+    @GET("rest/v1/system_logs?select=*,profiles!system_logs_user_id_fkey(full_name)")
     suspend fun getSystemLogs(
         @Query("action") action: String? = null,
         @Query("created_at") gteDate: String? = null,
@@ -162,8 +162,17 @@ interface ApiService {
     suspend fun searchProducts(@Query("name") query: String): List<Product>
 
     // Product Reviews
-    @GET("rest/v1/reviews?select=*,profiles(full_name)")
+    @GET("rest/v1/reviews?select=*,profiles!reviews_user_id_fkey(full_name)")
     suspend fun getProductReviews(@Query("product_id") filter: String): List<Map<String, Any>>
+
+    @GET("rest/v1/reviews?select=*,products(name)")
+    suspend fun getUserReviews(@Query("user_id") filter: String): List<Map<String, Any>>
+
+    @GET("rest/v1/addresses?select=*")
+    suspend fun getUserAddresses(@Query("user_id") filter: String): List<Map<String, Any>>
+
+    @GET("rest/v1/favorites?select=*,products(*)")
+    suspend fun getUserFavorites(@Query("user_id") filter: String): List<Map<String, Any>>
 
     @POST("rest/v1/reviews")
     suspend fun addReview(@Body reviewData: Map<String, Any>): Map<String, Any>

@@ -21,9 +21,13 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
 import com.example.nursewearconnect.ui.theme.*
 import com.example.nursewearconnect.ui.viewmodel.HomeViewModel
 import java.util.Locale
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,13 +64,13 @@ fun VendorAnalyticsScreen(
             
             item {
                 Text(
-                    "Revenue Trend",
+                    "Revenue Trend (Last 7 Days)",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = Slate900
                 )
                 Spacer(Modifier.height(12.dp))
-                RevenueChart()
+                RevenueChart(uiState.vendorOrders)
             }
             
             item {
@@ -78,8 +82,26 @@ fun VendorAnalyticsScreen(
                 )
             }
             
-            items(uiState.vendorProducts.take(3)) { product ->
-                TopProductItem(product.name, (10..50).random(), (5000..25000).random())
+            val topProducts = uiState.vendorProducts
+                .map { product ->
+                    val sold = uiState.vendorOrders.flatMap { 
+                        (it["order_items"] as? List<*>)?.filterIsInstance<Map<String, Any>>() ?: emptyList() 
+                    }.filter { it["product_id"] == product.id }
+                    .sumOf { (it["quantity"] as? Number)?.toInt() ?: 0 }
+                    
+                    product to sold
+                }.filter { it.second > 0 }
+                .sortedByDescending { it.second }
+                .take(5)
+
+            if (topProducts.isEmpty()) {
+                item {
+                    Text("No sales data available yet.", fontSize = 14.sp, color = Slate500, modifier = Modifier.padding(vertical = 8.dp))
+                }
+            } else {
+                items(topProducts) { (product, sold) ->
+                    TopProductItem(product.name, sold, (sold * product.priceKes))
+                }
             }
             
             item {
@@ -145,7 +167,23 @@ fun AnalyticsCard(label: String, value: String, trend: String, modifier: Modifie
 }
 
 @Composable
-fun RevenueChart() {
+fun RevenueChart(orders: List<Map<String, Any>>) {
+    val dailyRevenue = remember(orders) {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val cal = Calendar.getInstance()
+        val last7Days = (0..6).map { i ->
+            val d = cal.clone() as Calendar
+            d.add(Calendar.DAY_OF_YEAR, -i)
+            sdf.format(d.time)
+        }.reversed()
+        
+        last7Days.map { date ->
+            orders.filter { 
+                it["created_at"]?.toString()?.startsWith(date) == true 
+            }.sumOf { (it["total_amount"] as? Number)?.toDouble() ?: 0.0 }
+        }
+    }
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -154,26 +192,29 @@ fun RevenueChart() {
         color = Color.White,
         shadowElevation = 1.dp
     ) {
-        Canvas(modifier = Modifier.padding(24.dp)) {
-            val path = Path()
-            val points = listOf(0.2f, 0.5f, 0.4f, 0.8f, 0.7f, 0.9f, 1.0f)
-            val width = size.width
-            val height = size.height
-            
-            path.moveTo(0f, height * (1 - points[0]))
-            points.forEachIndexed { index, point ->
-                if (index > 0) {
-                    val x = (width / (points.size - 1)) * index
-                    val y = height * (1 - point)
-                    path.lineTo(x, y)
-                }
+        if (dailyRevenue.all { it == 0.0 }) {
+            Box(contentAlignment = Alignment.Center) {
+                Text("Not enough data for trend", color = Slate400, fontSize = 12.sp)
             }
-            
-            drawPath(
-                path = path,
-                color = Brand600,
-                style = Stroke(width = 3.dp.toPx())
-            )
+        } else {
+            Canvas(modifier = Modifier.padding(24.dp)) {
+                val path = Path()
+                val maxRev = dailyRevenue.maxOrNull()?.takeIf { it > 0 } ?: 1.0
+                val width = size.width
+                val height = size.height
+                
+                dailyRevenue.forEachIndexed { index, rev ->
+                    val x = (width / (dailyRevenue.size - 1)) * index
+                    val y = height * (1 - (rev / maxRev).toFloat())
+                    if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
+                
+                drawPath(
+                    path = path,
+                    color = Brand600,
+                    style = Stroke(width = 3.dp.toPx())
+                )
+            }
         }
     }
 }

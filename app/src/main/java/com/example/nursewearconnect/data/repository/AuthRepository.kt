@@ -53,12 +53,32 @@ class AuthRepository(
                 }
                 
                 securityManager.saveUserRole(role)
+                
+                // Audit Log: Login Success
+                try {
+                    apiService.logAction(mapOf(
+                        "user_id" to userId,
+                        "action" to "LOGIN_SUCCESS",
+                        "details" to "User logged in successfully via email",
+                        "severity" to "info"
+                    ))
+                } catch (e: Exception) {}
+
                 _isLoggedIn.value = true
                 Result.success(Unit)
             } else {
                 Result.failure(Exception("Login failed: No session received"))
             }
         } catch (e: Exception) {
+            // Audit Log: Login Failure
+            try {
+                apiService.logAction(mapOf(
+                    "user_id" to "anonymous",
+                    "action" to "LOGIN_FAILURE",
+                    "details" to "Login attempt failed for $email: ${e.message}",
+                    "severity" to "warning"
+                ))
+            } catch (ex: Exception) {}
             Result.failure(Exception(com.example.nursewearconnect.utils.AppUtils.mapThrowable(e)))
         }
     }
@@ -71,7 +91,8 @@ class AuthRepository(
         role: String,
         businessName: String? = null,
         location: String? = null,
-        businessDescription: String? = null
+        businessDescription: String? = null,
+        institution: String? = null
     ): Result<Unit> {
         val normalizedRole = role.lowercase()
         return try {
@@ -81,10 +102,15 @@ class AuthRepository(
                 "role" to normalizedRole
             )
             
+            institution?.let { metadata["institution"] = it }
+
             if (normalizedRole == "vendor") {
                 businessName?.let { metadata["business_name"] = it }
                 location?.let { metadata["location"] = it }
-                businessDescription?.let { metadata["business_description"] = it }
+                businessDescription?.let { 
+                    metadata["business_description"] = it 
+                    metadata["bio"] = it
+                }
             }
 
             supabaseClient.auth.signUpWith(Email) {
@@ -130,8 +156,24 @@ class AuthRepository(
         } catch (e: Exception) {
             // Ignore
         }
+        val userId = securityManager.getUserId()
         securityManager.clearToken()
         _isLoggedIn.value = false
+        
+        // Audit Log: Logout
+        userId?.let {
+            @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
+            GlobalScope.launch {
+                try {
+                    apiService.logAction(mapOf(
+                        "user_id" to it,
+                        "action" to "LOGOUT",
+                        "details" to "User logged out of the application",
+                        "severity" to "info"
+                    ))
+                } catch (e: Exception) {}
+            }
+        }
     }
 
     fun getUserRole(): String {

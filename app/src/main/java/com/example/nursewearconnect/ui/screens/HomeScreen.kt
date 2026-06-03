@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import java.util.Locale
 import com.example.nursewearconnect.model.Product
 import com.example.nursewearconnect.model.ProductColor
 import com.example.nursewearconnect.ui.theme.*
@@ -117,9 +118,49 @@ fun HomeScreen(
             }
             
             if (userRole == "vendor") {
+                val totalRevenue = uiState.vendorOrders.sumOf { (it["total_amount"] as? Number)?.toDouble() ?: 0.0 }
+                val lowStockCount = uiState.vendorProducts.count { it.inStock && it.stockCount in 1..5 }
+                
+                if (uiState.userStatus == "pending" || uiState.userStatus == "rejected") {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (uiState.userStatus == "pending") Color(0xFFFEF9C3) else Color(0xFFFEE2E2),
+                        border = BorderStroke(1.dp, if (uiState.userStatus == "pending") Color(0xFFFDE047) else Color(0xFFFECACA))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (uiState.userStatus == "pending") Icons.Default.Pending else Icons.Default.Block,
+                                contentDescription = null,
+                                tint = if (uiState.userStatus == "pending") Color(0xFF854D0E) else Color(0xFF991B1B)
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = if (uiState.userStatus == "pending") "Onboarding Pending" else "Account Restricted",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = if (uiState.userStatus == "pending") Color(0xFF854D0E) else Color(0xFF991B1B)
+                                )
+                                Text(
+                                    text = if (uiState.userStatus == "pending") "We're reviewing your shop. Full access coming soon!" else "Your account has been restricted. Contact support.",
+                                    fontSize = 12.sp,
+                                    color = if (uiState.userStatus == "pending") Color(0xFFA16207) else Color(0xFFB91C1C)
+                                )
+                            }
+                        }
+                    }
+                }
+
                 VendorStats(
                     orderCount = uiState.vendorOrders.size,
-                    lowStockCount = uiState.vendorProducts.count { !it.inStock }
+                    lowStockCount = lowStockCount,
+                    totalRevenue = totalRevenue
                 )
             } else if (userRole == "admin") {
                 val allUsers by viewModel.allUsers.collectAsState()
@@ -275,6 +316,12 @@ fun HomeScreen(
                     isReviewsLoading = uiState.isReviewsLoading,
                     onSubmitReview = { rating, comment ->
                         viewModel.submitReview(uiState.selectedProduct!!.id, rating, comment)
+                    },
+                    isAdmin = userRole == "admin",
+                    onEditProduct = { product ->
+                        // Implementation for navigating to edit
+                        viewModel.setSelectedProduct(null)
+                        onNavigateToAdminInventory()
                     }
                 )
             }
@@ -294,7 +341,9 @@ fun ProductDetailContent(
     onAddToCart: () -> Unit,
     reviews: List<Map<String, Any>> = emptyList(),
     isReviewsLoading: Boolean = false,
-    onSubmitReview: (Int, String) -> Unit = { _, _ -> }
+    onSubmitReview: (Int, String) -> Unit = { _, _ -> },
+    isAdmin: Boolean = false,
+    onEditProduct: (Product) -> Unit = {}
 ) {
     var showReviewDialog by remember { mutableStateOf(false) }
     var rating by remember { mutableStateOf(5) }
@@ -345,7 +394,7 @@ fun ProductDetailContent(
                 onClick = onFavoriteToggle,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(16.dp)
+                    .padding(top = 16.dp, end = 16.dp)
                     .background(Color.White.copy(alpha = 0.8f), CircleShape)
             ) {
                 Icon(
@@ -353,6 +402,22 @@ fun ProductDetailContent(
                     contentDescription = "Favorite",
                     tint = if (isFavorite) Color(0xFFF43F5E) else Slate300
                 )
+            }
+
+            if (isAdmin) {
+                IconButton(
+                    onClick = { onEditProduct(product) },
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(top = 16.dp, start = 16.dp)
+                        .background(Color.White.copy(alpha = 0.8f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Edit Product",
+                        tint = Brand600
+                    )
+                }
             }
 
             // 360 View Placeholder
@@ -400,12 +465,27 @@ fun ProductDetailContent(
                     lineHeight = 30.sp
                 )
             }
-            Text(
-                "KSh ${product.priceKes}",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = Brand600
-            )
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    "KSh ${product.priceKes}",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Brand600
+                )
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = Color(0xFFD1FAE5),
+                    modifier = Modifier.padding(top = 4.dp)
+                ) {
+                    Text(
+                        "PROFESSIONAL: KSh ${(product.priceKes * 0.9).toInt()}",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF065F46),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
         }
 
         Row(
@@ -424,6 +504,51 @@ fun ProductDetailContent(
                 fontSize = 14.sp,
                 color = Slate500
             )
+        }
+
+        if (!product.vendorName.isNullOrEmpty()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    .background(Slate50, RoundedCornerShape(12.dp))
+                    .padding(12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .background(Brand100, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.Store, null, tint = Brand600, modifier = Modifier.size(18.dp))
+                }
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text(
+                        "Sold by",
+                        fontSize = 10.sp,
+                        color = Slate500,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        product.vendorName ?: "",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Slate900
+                    )
+                }
+                if (product.vendorRating != null) {
+                    Spacer(Modifier.weight(1f))
+                    Icon(Icons.Default.Star, null, tint = Color(0xFFF59E0B), modifier = Modifier.size(14.dp))
+                    Text(
+                        " ${product.vendorRating}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Slate700
+                    )
+                }
+            }
         }
 
         HorizontalDivider(color = Slate100, modifier = Modifier.padding(vertical = 8.dp))
@@ -978,6 +1103,7 @@ fun CategorySelector(
 fun VendorStats(
     orderCount: Int = 0,
     lowStockCount: Int = 0,
+    totalRevenue: Double = 0.0,
     rating: Double = 0.0
 ) {
     Column(
@@ -988,7 +1114,7 @@ fun VendorStats(
             .padding(24.dp)
     ) {
         Text("Your Shop Performance", color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp)
-        Text("KSh ${orderCount * 5000}", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        Text("KSh ${String.format(Locale.US, "%,.0f", totalRevenue)}", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
         
         Spacer(Modifier.height(24.dp))
         
@@ -1943,12 +2069,20 @@ fun ProductCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    "KSh ${product.priceKes}",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Brand600
-                )
+                Column {
+                    Text(
+                        "KSh ${product.priceKes}",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Brand600
+                    )
+                    Text(
+                        "Pro: KSh ${(product.priceKes * 0.9).toInt()}",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF059669)
+                    )
+                }
                 IconButton(
                     onClick = { if (product.inStock) onAddToCart() },
                     modifier = Modifier.size(32.dp),

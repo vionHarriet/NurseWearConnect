@@ -14,7 +14,7 @@ class AdminRepository(private val apiService: ApiService) {
 
     suspend fun approveVendor(vendorId: String, adminId: String): Result<Unit> {
         return try {
-            apiService.updateProfile(vendorId, mapOf("status" to "active"))
+            apiService.updateProfile("eq.$vendorId", mapOf("status" to "active"))
             logAction(adminId, "APPROVE_VENDOR", "Approved vendor profile: $vendorId")
             Result.success(Unit)
         } catch (e: Exception) {
@@ -26,7 +26,7 @@ class AdminRepository(private val apiService: ApiService) {
         return try {
             val updateData = mutableMapOf<String, Any>("status" to "rejected")
             notes?.let { updateData["status_notes"] = it }
-            apiService.updateProfile(vendorId, updateData)
+            apiService.updateProfile("eq.$vendorId", updateData)
             logAction(adminId, "REJECT_VENDOR", "Rejected vendor profile: $vendorId. Notes: ${notes ?: "None"}")
             Result.success(Unit)
         } catch (e: Exception) {

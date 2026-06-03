@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextAlign
 import com.example.nursewearconnect.model.Product
 import com.example.nursewearconnect.ui.theme.*
 import com.example.nursewearconnect.ui.viewmodel.HomeViewModel
@@ -40,6 +41,9 @@ fun VendorInventoryScreen(
     var showAddProduct by remember { mutableStateOf(false) }
     var productToEdit by remember { mutableStateOf<Product?>(null) }
     var searchQuery by remember { mutableStateOf("") }
+
+    val isPending = uiState.userStatus == "pending"
+    val isRejected = uiState.userStatus == "rejected"
 
     if (showAddProduct || productToEdit != null) {
         ProductDialog(
@@ -70,8 +74,10 @@ fun VendorInventoryScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showAddProduct = true }) {
-                        Icon(Icons.Default.Add, contentDescription = "Add Product", tint = Brand600)
+                    if (!isPending && !isRejected) {
+                        IconButton(onClick = { showAddProduct = true }) {
+                            Icon(Icons.Default.Add, contentDescription = "Add Product", tint = Brand600)
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -81,84 +87,154 @@ fun VendorInventoryScreen(
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { showAddProduct = true },
-                containerColor = Brand600,
-                contentColor = Color.White,
-                icon = { Icon(Icons.Default.Add, null) },
-                text = { Text("Add Product") }
-            )
+            if (!isPending && !isRejected) {
+                ExtendedFloatingActionButton(
+                    onClick = { showAddProduct = true },
+                    containerColor = Brand600,
+                    contentColor = Color.White,
+                    icon = { Icon(Icons.Default.Add, null) },
+                    text = { Text("Add Product") }
+                )
+            }
         },
         containerColor = Slate50
     ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            // Search Bar
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = Color.White,
-                shadowElevation = 1.dp
+        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            Column(
+                modifier = Modifier.fillMaxSize()
             ) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    placeholder = { Text("Search your inventory...") },
-                    leadingIcon = { Icon(Icons.Default.Search, null, tint = Slate400) },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Brand600,
-                        unfocusedBorderColor = Slate200
-                    ),
-                    singleLine = true
-                )
-            }
-
-            // Inventory Stats
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                val totalItems = uiState.vendorProducts.size
-                val outOfStock = uiState.vendorProducts.count { !it.inStock || it.stockCount == 0 }
-                val lowStock = uiState.vendorProducts.count { it.inStock && it.stockCount in 1..5 }
-                
-                InventoryStatCard("Total Items", totalItems.toString(), Brand50, Brand600, Modifier.weight(1f))
-                InventoryStatCard("Low Stock", lowStock.toString(), Color(0xFFFFF7ED), Color(0xFFEA580C), Modifier.weight(1f))
-                InventoryStatCard("Out of Stock", outOfStock.toString(), Color(0xFFFEF2F2), Color(0xFFDC2626), Modifier.weight(1f))
-            }
-
-            Text(
-                "Product List",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                color = Slate700,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
-
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                val products = uiState.vendorProducts
-                val filteredProducts = products.filter {
-                    it.name.contains(searchQuery, ignoreCase = true)
+                // Search Bar
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color.White,
+                    shadowElevation = 1.dp
+                ) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        placeholder = { Text("Search your inventory...") },
+                        leadingIcon = { Icon(Icons.Default.Search, null, tint = Slate400) },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Brand600,
+                            unfocusedBorderColor = Slate200
+                        ),
+                        singleLine = true
+                    )
                 }
 
-                items(filteredProducts) { product ->
-                    VendorProductCard(
-                        product = product,
-                        onEdit = { productToEdit = it },
-                        onDelete = { viewModel.deleteVendorProduct(product.id) }
-                    )
+                // Inventory Stats
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    val totalItems = uiState.vendorProducts.size
+                    val outOfStock = uiState.vendorProducts.count { !it.inStock || it.stockCount == 0 }
+                    val lowStock = uiState.vendorProducts.count { it.inStock && it.stockCount in 1..5 }
+                    
+                    InventoryStatCard("Total Items", totalItems.toString(), Brand50, Brand600, Modifier.weight(1f))
+                    InventoryStatCard("Low Stock", lowStock.toString(), Color(0xFFFFF7ED), Color(0xFFEA580C), Modifier.weight(1f))
+                    InventoryStatCard("Out of Stock", outOfStock.toString(), Color(0xFFFEF2F2), Color(0xFFDC2626), Modifier.weight(1f))
+                }
+
+                Text(
+                    "Product List",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Slate700,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    val products = uiState.vendorProducts
+                    val filteredProducts = products.filter {
+                        it.name.contains(searchQuery, ignoreCase = true)
+                    }
+
+                    items(filteredProducts) { product ->
+                        VendorProductCard(
+                            product = product,
+                            onEdit = { if (!isPending && !isRejected) productToEdit = it },
+                            onDelete = { if (!isPending && !isRejected) viewModel.deleteVendorProduct(product.id) }
+                        )
+                    }
+                }
+            }
+
+            // Overlay for Pending/Rejected Status
+            if (isPending || isRejected) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.6f))
+                        .clickable(enabled = false) {},
+                    contentAlignment = Alignment.Center
+                ) {
+                    Card(
+                        modifier = Modifier.padding(32.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        shape = RoundedCornerShape(24.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                imageVector = if (isPending) Icons.Default.Pending else Icons.Default.Block,
+                                contentDescription = null,
+                                tint = if (isPending) Brand600 else Color(0xFFDC2626),
+                                modifier = Modifier.size(64.dp)
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            Text(
+                                text = if (isPending) "Account Pending Approval" else "Account Restricted",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = if (isPending) 
+                                    "Your vendor account is currently under review. You'll be able to manage inventory once approved." 
+                                    else "Your vendor account has been restricted. Please contact support for more information.",
+                                fontSize = 14.sp,
+                                color = Slate500,
+                                textAlign = TextAlign.Center
+                            )
+                            
+                            if (uiState.statusNotes != null) {
+                                Spacer(Modifier.height(16.dp))
+                                Text(
+                                    text = "Notes: ${uiState.statusNotes}",
+                                    fontSize = 14.sp,
+                                    color = Slate900,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier
+                                        .background(Slate50, RoundedCornerShape(8.dp))
+                                        .padding(12.dp)
+                                )
+                            }
+                            
+                            Spacer(Modifier.height(24.dp))
+                            Button(
+                                onClick = onBackClick,
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = Brand600)
+                            ) {
+                                Text("Go Back")
+                            }
+                        }
+                    }
                 }
             }
         }

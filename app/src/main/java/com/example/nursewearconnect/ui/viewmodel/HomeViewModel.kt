@@ -73,10 +73,13 @@ data class HomeUiState(
     val banners: List<Map<String, Any>> = emptyList(),
     val systemLogs: List<Map<String, Any>> = emptyList(),
     val payouts: List<Map<String, Any>> = emptyList(),
+    val userReviews: List<Map<String, Any>> = emptyList(),
     val notifications: List<Map<String, Any>> = emptyList(),
     val messages: List<Map<String, Any>> = emptyList(),
     val productReviews: List<Map<String, Any>> = emptyList(),
     val isReviewsLoading: Boolean = false,
+    val addresses: List<Map<String, Any>> = emptyList(),
+    val favorites: List<Product> = emptyList(),
     val activeSessions: List<Map<String, Any>> = emptyList(),
     val biometricEnabled: Boolean = false,
     val notificationsEnabled: Boolean = true,
@@ -122,6 +125,12 @@ class HomeViewModel(
         loadHomeData()
         startRealtimeUpdates()
         setupSearchDebounce()
+        
+        // Trigger initial background refresh to populate Room cache
+        viewModelScope.launch {
+            productRepository.refreshProducts()
+            productRepository.getCategories()
+        }
     }
 
     private fun setupSearchDebounce() {
@@ -166,6 +175,20 @@ class HomeViewModel(
                     messages = messages,
                     unreadMessagesCount = messages.count { m -> !(m["is_read"] as? Boolean ?: true) }
                 ) }
+            }
+        }
+
+        // Listen for vendor data changes if applicable
+        if (_uiState.value.userRole == "vendor") {
+            viewModelScope.launch {
+                vendorRepository.getVendorProductsRealtime(userId).collect {
+                    loadVendorData(userId)
+                }
+            }
+            viewModelScope.launch {
+                vendorRepository.getVendorOrdersRealtime(userId).collect {
+                    loadVendorData(userId)
+                }
             }
         }
     }
@@ -277,6 +300,9 @@ class HomeViewModel(
                 val messagesResult = userRepository.getMessages(userId)
                 val userOrdersResult = orderRepository.getUserOrders("eq.$userId")
                 val sessions = userRepository.getActiveSessions(userId)
+                val reviews = userRepository.getUserReviews(userId)
+                val addresses = userRepository.getUserAddresses(userId)
+                val favoritesData = userRepository.getUserFavorites(userId)
                 
                 val orders = userOrdersResult.getOrDefault(emptyList()).map { map ->
                     val profiles = map["profiles"] as? Map<*, *>
@@ -289,6 +315,10 @@ class HomeViewModel(
                     messages = messagesResult,
                     allOrders = orders,
                     activeSessions = sessions,
+                    userReviews = reviews,
+                    addresses = addresses,
+                    favorites = emptyList(), // Use IDs for now to avoid mapping errors
+                    favoriteProductIds = favoritesData.mapNotNull { (it["product_id"]?.toString()) }.toSet(),
                     biometricEnabled = userRepository.isBiometricEnabled(),
                     unreadNotificationsCount = notificationsResult.count { n -> !(n["isRead"] as? Boolean ?: true) },
                     unreadMessagesCount = messagesResult.count { m -> !(m["isRead"] as? Boolean ?: true) }
@@ -855,7 +885,10 @@ class HomeViewModel(
             val userId = userRepository.getUserId() ?: return@launch
             _uiState.update { it.copy(isLoading = true) }
 
-            var updatedProduct = product.copy(vendor_id = userId)
+            var updatedProduct = product.copy(
+                vendor_id = userId,
+                vendorName = _uiState.value.userName
+            )
 
             // Optimize and upload image if provided
             if (imageBytes != null) {

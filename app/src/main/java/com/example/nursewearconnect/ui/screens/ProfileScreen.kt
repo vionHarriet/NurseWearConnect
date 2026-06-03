@@ -62,6 +62,7 @@ fun ProfileScreen(innerPadding: PaddingValues, viewModel: HomeViewModel) {
     val businessName = userProfile?.get("business_name") as? String ?: ""
     val location = userProfile?.get("location") as? String ?: ""
     val address = userProfile?.get("address") as? String ?: ""
+    val institution = userProfile?.get("institution") as? String ?: ""
     val bio = userProfile?.get("bio") as? String ?: userProfile?.get("business_description") as? String ?: ""
     val avatarUrl = userProfile?.get("avatar_url") as? String
     
@@ -118,6 +119,7 @@ fun ProfileScreen(innerPadding: PaddingValues, viewModel: HomeViewModel) {
             initialName = fullName,
             initialPhone = phoneNumber,
             initialAddress = address,
+            initialInstitution = institution,
             initialBusinessName = businessName,
             initialLocation = location,
             initialBio = bio,
@@ -174,10 +176,17 @@ fun ProfileScreen(innerPadding: PaddingValues, viewModel: HomeViewModel) {
                 )
                 
                 if (uiState.userRole == "vendor") {
-                    VendorBusinessSection(businessName, location, bio, onEditClick = { showEditDialog = true })
+                    VendorBusinessSection(
+                        businessName, 
+                        location, 
+                        bio, 
+                        status = uiState.userStatus,
+                        statusNotes = uiState.statusNotes,
+                        onEditClick = { showEditDialog = true }
+                    )
                 }
                 
-                PersonalInfoSection(fullName, email, phoneNumber, address, onEditClick = { showEditDialog = true })
+                PersonalInfoSection(fullName, email, phoneNumber, address, institution, onEditClick = { showEditDialog = true })
                 
                 if (uiState.userRole == "admin") {
                     AdminQuickActionsSection(
@@ -193,10 +202,12 @@ fun ProfileScreen(innerPadding: PaddingValues, viewModel: HomeViewModel) {
                 
                 if (uiState.userRole == "student" || uiState.userRole == "professional") {
                     MeasurementsSection(bust, waist, hips, onEditClick = { showMeasurementsDialog = true })
-                    QuickReorderSection()
+                    if (uiState.reorderItems.isNotEmpty()) {
+                        QuickReorderSection(uiState.reorderItems) { viewModel.quickReorder(it) }
+                    }
                 }
                 
-                AddressesAndFavoritesSection(uiState.userRole)
+                AddressesAndFavoritesSection(uiState.userRole, uiState.userReviews.size, uiState.addresses.size, uiState.favoriteProductIds.size)
                 SecuritySettingsSection(
                     biometricEnabled = uiState.biometricEnabled,
                     onBiometricToggle = { viewModel.setBiometricEnabled(it) },
@@ -313,16 +324,28 @@ fun UserSummarySection(userName: String, userRole: String, userType: UserType, a
                 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(userName, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Slate900)
-                    Text(
-                        when (userRole) {
-                            "admin" -> "Administrator"
-                            "vendor" -> "Uniform Vendor"
-                            "professional" -> "Medical Professional"
-                            else -> "Student Nurse"
-                        }, 
-                        fontSize = 13.sp, 
-                        color = Slate500
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            when (userRole) {
+                                "admin" -> "Administrator"
+                                "vendor" -> "Uniform Vendor"
+                                "professional" -> "Medical Professional"
+                                else -> "Student Nurse"
+                            }, 
+                            fontSize = 13.sp, 
+                            color = Slate500
+                        )
+                        if (userRole == "vendor") {
+                            Spacer(Modifier.width(8.dp))
+                            Surface(color = Color(0xFFFFFBEB), shape = RoundedCornerShape(4.dp)) {
+                                Row(modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Star, null, tint = Color(0xFFF59E0B), modifier = Modifier.size(10.dp))
+                                    Spacer(Modifier.width(2.dp))
+                                    Text("4.8", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF92400E))
+                                }
+                            }
+                        }
+                    }
                 }
             }
             
@@ -359,7 +382,7 @@ fun UserSummarySection(userName: String, userRole: String, userType: UserType, a
 }
 
 @Composable
-fun PersonalInfoSection(fullName: String, email: String, phoneNumber: String, address: String, onEditClick: () -> Unit) {
+fun PersonalInfoSection(fullName: String, email: String, phoneNumber: String, address: String, institution: String, onEditClick: () -> Unit) {
     Surface(shape = RoundedCornerShape(16.dp), color = Color.White, border = BorderStroke(1.dp, Slate100)) {
         Column {
             Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -371,6 +394,7 @@ fun PersonalInfoSection(fullName: String, email: String, phoneNumber: String, ad
                 InfoRow("FULL NAME", fullName)
                 InfoRow("EMAIL", email)
                 InfoRow("PHONE", phoneNumber)
+                if (institution.isNotEmpty()) InfoRow("INSTITUTION / HOSPITAL", institution)
                 InfoRow("DELIVERY ADDRESS", address)
             }
         }
@@ -415,11 +439,34 @@ fun InfoRow(label: String, value: String) {
 }
 
 @Composable
-fun VendorBusinessSection(name: String, location: String, bio: String, onEditClick: () -> Unit) {
+fun VendorBusinessSection(name: String, location: String, bio: String, status: String, statusNotes: String?, onEditClick: () -> Unit) {
     Surface(shape = RoundedCornerShape(16.dp), color = Color.White, border = BorderStroke(1.dp, Brand100)) {
         Column {
             Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Business Profile", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Slate900)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Business Profile", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Slate900)
+                    Spacer(Modifier.width(8.dp))
+                    Surface(
+                        color = when(status.lowercase()) {
+                            "active" -> Color(0xFFDCFCE7)
+                            "pending" -> Color(0xFFFEF9C3)
+                            else -> Color(0xFFFEE2E2)
+                        },
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            status.uppercase(), 
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = when(status.lowercase()) {
+                                "active" -> Color(0xFF166534)
+                                "pending" -> Color(0xFF854D0E)
+                                else -> Color(0xFF991B1B)
+                            }
+                        )
+                    }
+                }
                 TextButton(onClick = onEditClick) { Text("Edit", color = Brand600) }
             }
             HorizontalDivider(color = Slate100)
@@ -427,6 +474,12 @@ fun VendorBusinessSection(name: String, location: String, bio: String, onEditCli
                 InfoRow("BUSINESS NAME", name)
                 InfoRow("LOCATION", location)
                 if (bio.isNotEmpty()) InfoRow("DESCRIPTION", bio)
+                if (!statusNotes.isNullOrEmpty()) {
+                    Column(modifier = Modifier.background(Slate50, RoundedCornerShape(8.dp)).padding(8.dp)) {
+                        Text("ADMIN NOTES", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Slate400)
+                        Text(statusNotes, fontSize = 12.sp, color = Slate600)
+                    }
+                }
             }
         }
     }
@@ -465,25 +518,40 @@ fun MeasurementCard(label: String, value: String, modifier: Modifier = Modifier)
 }
 
 @Composable
-fun QuickReorderSection() {
+fun QuickReorderSection(items: List<com.example.nursewearconnect.model.Product>, onReorder: (com.example.nursewearconnect.model.Product) -> Unit) {
     Column {
         Text("Quick Reorder", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Slate900, modifier = Modifier.padding(bottom = 12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            ReorderCard("Classic Navy Set", "🩵", Modifier.weight(1f))
-            ReorderCard("Ceil Blue Top", "💙", Modifier.weight(1f))
+            items.take(2).forEach { product ->
+                ReorderCard(product, Modifier.weight(1f), onReorder)
+            }
         }
     }
 }
 
 @Composable
-fun ReorderCard(name: String, emoji: String, modifier: Modifier = Modifier) {
+fun ReorderCard(product: com.example.nursewearconnect.model.Product, modifier: Modifier = Modifier, onReorder: (com.example.nursewearconnect.model.Product) -> Unit) {
     Surface(modifier = modifier, shape = RoundedCornerShape(16.dp), color = Color.White, border = BorderStroke(1.dp, Slate100)) {
         Column(modifier = Modifier.padding(8.dp)) {
             Box(modifier = Modifier.fillMaxWidth().height(80.dp).background(Slate50, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
-                Text(emoji, fontSize = 32.sp)
+                if (product.images.isNotEmpty()) {
+                    AsyncImage(
+                        model = product.images.first(),
+                        contentDescription = product.name,
+                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Text("👕", fontSize = 32.sp)
+                }
             }
-            Text(name, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Slate800, maxLines = 1, modifier = Modifier.padding(top = 8.dp))
-            Button(onClick = { }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(32.dp), shape = RoundedCornerShape(8.dp), contentPadding = PaddingValues(0.dp)) {
+            Text(product.name, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Slate800, maxLines = 1, modifier = Modifier.padding(top = 8.dp))
+            Button(
+                onClick = { onReorder(product) },
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(32.dp),
+                shape = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(0.dp)
+            ) {
                 Text("Order Again", fontSize = 11.sp)
             }
         }
@@ -491,16 +559,16 @@ fun ReorderCard(name: String, emoji: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun AddressesAndFavoritesSection(userRole: String) {
+fun AddressesAndFavoritesSection(userRole: String, reviewsCount: Int, addressesCount: Int, favoritesCount: Int) {
     Surface(shape = RoundedCornerShape(16.dp), color = Color.White, border = BorderStroke(1.dp, Slate100)) {
         Column {
-            ProfileLinkItem(Icons.Default.LocationOn, "Saved Addresses", "Manage delivery locations", Slate100, Slate600)
+            ProfileLinkItem(Icons.Default.LocationOn, "Saved Addresses", if (addressesCount > 0) "$addressesCount locations saved" else "Manage delivery locations", Slate100, Slate600)
             HorizontalDivider(color = Slate100)
             if (userRole != "vendor") {
-                ProfileLinkItem(Icons.Default.Favorite, "Favorites", "Your saved items", Color(0xFFFFF1F2), Color(0xFFF43F5E))
+                ProfileLinkItem(Icons.Default.Favorite, "Favorites", if (favoritesCount > 0) "$favoritesCount items saved" else "Your saved items", Color(0xFFFFF1F2), Color(0xFFF43F5E))
                 HorizontalDivider(color = Slate100)
             }
-            ProfileLinkItem(Icons.Default.Star, "My Reviews", "History of your feedback", Color(0xFFFFFBEB), Color(0xFFF59E0B))
+            ProfileLinkItem(Icons.Default.Star, "My Reviews", "$reviewsCount feedback given", Color(0xFFFFFBEB), Color(0xFFF59E0B))
         }
     }
 }
@@ -658,10 +726,11 @@ fun PhotoPreviewDialog(avatarUrl: String, onDismiss: () -> Unit, onChangePhoto: 
 }
 
 @Composable
-fun EditProfileDialog(userRole: String, initialName: String, initialPhone: String, initialAddress: String, initialBusinessName: String, initialLocation: String, initialBio: String, onDismiss: () -> Unit, onSave: (Map<String, Any>) -> Unit) {
+fun EditProfileDialog(userRole: String, initialName: String, initialPhone: String, initialAddress: String, initialInstitution: String, initialBusinessName: String, initialLocation: String, initialBio: String, onDismiss: () -> Unit, onSave: (Map<String, Any>) -> Unit) {
     var name by remember { mutableStateOf(initialName) }
     var phone by remember { mutableStateOf(initialPhone) }
     var address by remember { mutableStateOf(initialAddress) }
+    var institution by remember { mutableStateOf(initialInstitution) }
     var busName by remember { mutableStateOf(initialBusinessName) }
     var loc by remember { mutableStateOf(initialLocation) }
     var bioText by remember { mutableStateOf(initialBio) }
@@ -675,6 +744,10 @@ fun EditProfileDialog(userRole: String, initialName: String, initialPhone: Strin
                 OutlinedTextField(value = phone, onValueChange = { phone = it }, label = { Text("Phone") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = address, onValueChange = { address = it }, label = { Text("Delivery Address") }, modifier = Modifier.fillMaxWidth())
                 
+                if (userRole == "student" || userRole == "professional") {
+                    OutlinedTextField(value = institution, onValueChange = { institution = it }, label = { Text("Institution / Hospital") }, modifier = Modifier.fillMaxWidth())
+                }
+
                 if (userRole == "vendor") {
                     OutlinedTextField(value = busName, onValueChange = { busName = it }, label = { Text("Business Name") }, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(value = loc, onValueChange = { loc = it }, label = { Text("Location") }, modifier = Modifier.fillMaxWidth())
@@ -687,7 +760,8 @@ fun EditProfileDialog(userRole: String, initialName: String, initialPhone: Strin
                 val data = mutableMapOf<String, Any>(
                     "full_name" to name, 
                     "phone_number" to phone,
-                    "address" to address
+                    "address" to address,
+                    "institution" to institution
                 )
                 if (userRole == "vendor") {
                     data["business_name"] = busName

@@ -72,6 +72,6 @@ class AppContainer(private val context: Context) {
     val orderRepository: OrderRepository by lazy { OrderRepository(apiService) }
     val paymentRepository: PaymentRepository by lazy { PaymentRepository(apiService) }
     val adminRepository: AdminRepository by lazy { AdminRepository(apiService) }
-    val vendorRepository: VendorRepository by lazy { VendorRepository(apiService, adminRepository) }
+    val vendorRepository: VendorRepository by lazy { VendorRepository(apiService, adminRepository, supabaseClient) }
     val authRepository: AuthRepository by lazy { AuthRepository(supabaseClient, securityManager, apiService) }
 }

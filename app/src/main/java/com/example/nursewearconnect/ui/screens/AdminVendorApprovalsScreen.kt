@@ -142,7 +142,7 @@ fun AdminVendorApprovalsScreen(
 
             items(uiState.pendingVendors) { vendorMap ->
                 val vendor = PendingVendor(
-                    id = vendorMap["id"]?.toString() ?: "0",
+                    id = vendorMap["user_id"]?.toString() ?: vendorMap["id"]?.toString() ?: "0",
                     businessName = vendorMap["business_name"]?.toString() ?: vendorMap["full_name"]?.toString() ?: "Unknown",
                     email = vendorMap["email"]?.toString() ?: "No Email",
                     description = vendorMap["business_description"]?.toString() ?: vendorMap["bio"]?.toString() ?: "No Description",

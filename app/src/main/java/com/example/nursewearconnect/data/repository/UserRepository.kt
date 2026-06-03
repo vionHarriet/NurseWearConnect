@@ -74,6 +74,17 @@ class UserRepository(
         return try {
             apiService.updateProfile("eq.$userId", data)
             fetchProfile(userId)
+            
+            // Audit Log: Profile Update
+            try {
+                apiService.logAction(mapOf(
+                    "user_id" to userId,
+                    "action" to "PROFILE_UPDATE",
+                    "details" to "User updated profile fields: ${data.keys.joinToString(", ")}",
+                    "severity" to "info"
+                ))
+            } catch (e: Exception) {}
+
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(Exception(com.example.nursewearconnect.utils.AppUtils.mapThrowable(e)))
@@ -186,9 +197,46 @@ class UserRepository(
         }
     }
 
+    suspend fun getUserReviews(userId: String): List<Map<String, Any>> {
+        return try {
+            apiService.getUserReviews("eq.$userId")
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    suspend fun getUserAddresses(userId: String): List<Map<String, Any>> {
+        return try {
+            apiService.getUserAddresses("eq.$userId")
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    suspend fun getUserFavorites(userId: String): List<Map<String, Any>> {
+        return try {
+            apiService.getUserFavorites("eq.$userId")
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
     suspend fun revokeSession(sessionId: String): Result<Unit> {
         return try {
             apiService.revokeSession("eq.$sessionId")
+            
+            // Audit Log: Session Revocation
+            getUserId()?.let { userId ->
+                try {
+                    apiService.logAction(mapOf(
+                        "user_id" to userId,
+                        "action" to "SESSION_REVOKED",
+                        "details" to "User revoked session: $sessionId",
+                        "severity" to "warning"
+                    ))
+                } catch (e: Exception) {}
+            }
+
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(Exception(com.example.nursewearconnect.utils.AppUtils.mapThrowable(e)))

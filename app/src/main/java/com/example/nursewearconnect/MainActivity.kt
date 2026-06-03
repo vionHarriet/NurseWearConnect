@@ -367,6 +367,11 @@ fun NurseWearConnectApp(showBiometricPrompt: (() -> Unit) -> Unit) {
                                         isReviewsLoading = homeUiState.isReviewsLoading,
                                         onSubmitReview = { rating, comment ->
                                             homeViewModel.submitReview(product.id, rating, comment)
+                                        },
+                                        isAdmin = homeUiState.userRole == "admin",
+                                        onEditProduct = { 
+                                            homeViewModel.setSelectedProduct(null)
+                                            currentScreen = Screen.ADMIN_INVENTORY
                                         }
                                     )
                                 }

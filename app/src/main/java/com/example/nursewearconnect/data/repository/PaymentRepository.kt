@@ -29,6 +29,17 @@ class PaymentRepository(private val apiService: ApiService) {
             )
             val response = apiService.initiateStkPush(paymentData)
             val checkoutId = response["CheckoutRequestID"] as? String ?: "unknown_checkout_id"
+            
+            // Audit Log: Payment Initiated
+            try {
+                apiService.logAction(mapOf(
+                    "user_id" to "system", // The caller should ideally pass userId
+                    "action" to "PAYMENT_INITIATED",
+                    "details" to "STK Push initiated for order #$orderId (KES $amount)",
+                    "severity" to "info"
+                ))
+            } catch (e: Exception) {}
+
             val result = PaymentStatus.Success(checkoutId)
             _paymentState.value = result
             result

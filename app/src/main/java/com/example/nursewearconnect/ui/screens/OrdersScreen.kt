@@ -133,14 +133,19 @@ fun OrdersScreen(
                 contentPadding = PaddingValues(bottom = 24.dp)
             ) {
                 // Active Order Section
-                item {
-                    ActiveOrderCard(onSupportClick = onSupportClick)
+                val activeOrder = uiState.allOrders.find { it["status"]?.toString()?.lowercase() in listOf("processing", "shipped", "in transit") }
+                if (activeOrder != null) {
+                    item {
+                        ActiveOrderCard(order = activeOrder, onSupportClick = onSupportClick)
+                    }
                 }
 
                 // Updates Section
-                item {
-                    SectionHeader(title = "Updates", badge = "${uiState.unreadNotificationsCount} New")
-                    UpdatesList()
+                if (uiState.notifications.isNotEmpty()) {
+                    item {
+                        SectionHeader(title = "Recent Updates", badge = if (uiState.unreadNotificationsCount > 0) "${uiState.unreadNotificationsCount} New" else null)
+                        UpdatesList(notifications = uiState.notifications.take(3))
+                    }
                 }
 
                 // Past Orders Section
@@ -194,7 +199,11 @@ fun FilterChip(label: String, isSelected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-fun ActiveOrderCard(onSupportClick: () -> Unit = {}) {
+fun ActiveOrderCard(order: Map<String, Any>, onSupportClick: () -> Unit = {}) {
+    val orderId = order["id"]?.toString()?.takeLast(8) ?: "Unknown"
+    val status = order["status"]?.toString() ?: "Processing"
+    val totalAmount = order["total_amount"]?.toString() ?: "0"
+    
     Surface(
         modifier = Modifier
             .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -211,8 +220,8 @@ fun ActiveOrderCard(onSupportClick: () -> Unit = {}) {
                 verticalAlignment = Alignment.Top
             ) {
                 Column {
-                    Text("Order #NW-8492", fontSize = 12.sp, color = Slate500)
-                    Text("Arriving Oct 17", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Slate900)
+                    Text("Order #$orderId", fontSize = 12.sp, color = Slate500)
+                    Text("Status: $status", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Slate900)
                 }
                 
                 Surface(
@@ -226,7 +235,7 @@ fun ActiveOrderCard(onSupportClick: () -> Unit = {}) {
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Box(modifier = Modifier.size(6.dp).background(Color(0xFF3B82F6), CircleShape))
-                        Text("In Transit", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2563EB))
+                        Text(status.replaceFirstChar { it.uppercase() }, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2563EB))
                     }
                 }
             }
@@ -239,28 +248,24 @@ fun ActiveOrderCard(onSupportClick: () -> Unit = {}) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    repeat(2) {
-                        Box(
-                            modifier = Modifier
-                                .size(56.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Slate50)
-                                .border(1.dp, Slate100, RoundedCornerShape(12.dp))
-                        ) {
-                            Icon(Icons.Default.Inventory2, null, modifier = Modifier.align(Alignment.Center).size(24.dp), tint = Slate300)
-                        }
-                    }
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Slate50)
+                        .border(1.dp, Slate100, RoundedCornerShape(12.dp))
+                ) {
+                    Icon(Icons.Default.Inventory2, null, modifier = Modifier.align(Alignment.Center).size(24.dp), tint = Slate300)
                 }
                 Column {
-                    Text("2 Items", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Slate700)
-                    Text("KSh 11,460 Total", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Brand600)
+                    Text("Order Items", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Slate700)
+                    Text("KSh $totalAmount Total", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Brand600)
                 }
             }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 20.dp), color = Slate100)
 
-            OrderTimelineView(status = "Shipped") // Example status for the active order card
+            OrderTimelineView(status = status) 
 
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -318,7 +323,7 @@ fun SectionHeader(title: String, badge: String? = null) {
 }
 
 @Composable
-fun UpdatesList() {
+fun UpdatesList(notifications: List<Map<String, Any>>) {
     Surface(
         modifier = Modifier.padding(horizontal = 16.dp),
         shape = RoundedCornerShape(24.dp),
@@ -326,28 +331,32 @@ fun UpdatesList() {
         border = BorderStroke(1.dp, Slate100)
     ) {
         Column(modifier = Modifier.padding(8.dp)) {
-            UpdateItem(
-                UpdateNotification(
-                    "Package out for delivery",
-                    "Your scrubs will arrive today between 2 PM and 5 PM",
-                    "Just now",
-                    true,
-                    Icons.Default.MoveToInbox,
-                    Brand500,
-                    Brand50
+            notifications.forEach { notif ->
+                val type = notif["type"]?.toString() ?: "system"
+                UpdateItem(
+                    UpdateNotification(
+                        title = notif["title"]?.toString() ?: "Update",
+                        description = notif["message"]?.toString() ?: "",
+                        time = notif["time"]?.toString() ?: "Recently",
+                        isUnread = !(notif["isRead"] as? Boolean ?: true),
+                        icon = when(type) {
+                            "order" -> Icons.Default.MoveToInbox
+                            "promo" -> Icons.Default.LocalOffer
+                            else -> Icons.Default.Notifications
+                        },
+                        color = when(type) {
+                            "order" -> Brand500
+                            "promo" -> Color(0xFFF43F5E)
+                            else -> Slate600
+                        },
+                        bgColor = when(type) {
+                            "order" -> Brand50
+                            "promo" -> Color(0xFFFFF1F2)
+                            else -> Slate50
+                        }
+                    )
                 )
-            )
-            UpdateItem(
-                UpdateNotification(
-                    "15% Off Your Next Reorder",
-                    "Use code NURSEIS at checkout valid for 7 days.",
-                    "Yesterday",
-                    false,
-                    Icons.Default.LocalOffer,
-                    Color(0xFFF43F5E),
-                    Color(0xFFFFF1F2)
-                )
-            )
+            }
         }
     }
 }

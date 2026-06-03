@@ -31,7 +31,9 @@ data class Product(
     ),
     @SerializedName("sub_category")
     val subCategory: String? = null,
+    @SerializedName("measurement_guide")
     val measurementGuide: Map<String, String>? = null,
+    @SerializedName("vendor_id")
     val vendor_id: String? = null,
     @SerializedName("vendor_name")
     val vendorName: String? = null,
